@@ -35,6 +35,74 @@ def encode_image_to_base64(image_data):
     encoded_string = base64.b64encode(buffer)
     return encoded_string.decode('utf-8')
 
+def txt2img(prompt_input, negative_prompt_input, image_input):
+    # Positive prompt
+    inputs_pp = [prompt_input, default_pp]
+    combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
+    # Negative prompt
+    inputs_np = [negative_prompt_input, default_np]
+    combined_np = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_np]))
+
+    txt2img_payload = {
+        "prompt": combined_pp,
+        "negative_prompt": combined_np,
+        "batch_size": 1,
+        "seed": -1,
+        "steps": 25,
+        "width": 768,
+        "height": 768,
+        "sampler_name": "Euler a",
+        "save_images": True,
+        "alwayson_scripts": {
+            "Dynamic Prompts v2.17.1": {
+                "args": {
+                    "0": True, # Dynamic Prompts enabled
+                    "1": True, # Combinatorial generation
+                    "2": 1, # Combinatorial batches
+                    "3": False, # Magic prompt
+                    "4": False, # I'm feelinf lucky
+                    "5": False, # Attention Grabber
+                    "6": 1.1, # Min attention
+                    "7": 1.5, # Max attention
+                    "8": 100, # Max magic prompt length
+                    "9": 0.7, # Magic prompt creativity
+                    "10": False, # Fixed seed
+                    "11": False, # Unlink seed from prompt
+                    "12": True, # Don't apply to negative prompts
+                    "13": False, # Enable Jinja2 templates
+                    "14": False, # Don't generate images
+                    "15": 0, # Max generations (0 = all combinations - the batch count value is ignored)
+                    "16": "Gustavosta/MagicPrompt-Stable-Diffusion", # Magic prompt model
+                    "17": "" # Magic prompt blocklist regex
+                }
+            }
+        }
+    }
+
+    # For the script to override the model chosen on A1111    
+    override_settings = {
+        "sd_model_checkpoint": model_checkpoint
+    }
+    override_payload = {
+        "override_settings": override_settings
+    }
+    txt2img_payload.update(override_payload)
+    
+    txt2img_response = requests.post(url=f'{url}/sdapi/v1/txt2img', json=txt2img_payload)
+    r = txt2img_response.json()
+
+    # Save the image locally
+    image_data = r.get("images", [])
+    output_folder = "image_output"
+    image_path = os.path.join(output_folder, "generated_image.jpg")
+    with open(image_path, "wb") as img_file:
+        img_file.write(base64.b64decode(r["images"][0]))
+        
+    # Extract and print infotexts
+    jsoninfo = json.loads(r['info'])
+    print("Positive prompt:", jsoninfo["infotexts"][0]) # Debug info on the terminal
+    return image_path
+
 def img2img(prompt_input, negative_prompt_input, image_input):
     # Positive prompt
     inputs_pp = [prompt_input, default_pp]
@@ -169,7 +237,7 @@ generated_image = gr.Image(elem_id="generated_image", label="Generated Image")
 
 # Create the ui
 iface = gr.Interface(
-    fn=txt2img_controlnet,
+    fn=txt2img,
     inputs=[
         prompt_input,
         negative_prompt_input,

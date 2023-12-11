@@ -46,7 +46,57 @@ def txt2img(prompt_input, negative_prompt_input, image_input):
     txt2img_payload = {
         "prompt": combined_pp,
         "negative_prompt": combined_np,
-        "batch_size": 1,
+        "batch_size": 4,
+        "seed": -1,
+        "steps": 25,
+        "width": 768,
+        "height": 768,
+        "sampler_name": "Euler a",
+        "save_images": True,
+    }
+
+    # For the script to override the model chosen on A1111    
+    override_settings = {
+        "sd_model_checkpoint": model_checkpoint
+    }
+    override_payload = {
+        "override_settings": override_settings
+    }
+    txt2img_payload.update(override_payload)
+    
+    txt2img_response = requests.post(url=f'{url}/sdapi/v1/txt2img', json=txt2img_payload)
+    r = txt2img_response.json()
+
+     # Save the images locally (modification for >1 image)
+    output_folder = "image_output"
+    os.makedirs(output_folder, exist_ok=True)  # Ensure the output folder exists
+    
+    image_paths = []
+    for i, img_data in enumerate(r.get("images", [])):
+        image_path = os.path.join(output_folder, f"generated_image_{i}.jpg")
+        with open(image_path, "wb") as img_file:
+            img_file.write(base64.b64decode(img_data))
+        image_paths.append(image_path)
+        
+        if i == 0:  # Print infotext for the first image only
+            jsoninfo = json.loads(r['info'])
+            print("\n________________Debug Info Text________________\n")
+            print(f"Positive prompt: {jsoninfo['infotexts'][0]}")
+
+    return image_paths
+
+def txt2img_test_dynamic_prompt(prompt_input, negative_prompt_input, image_input):
+    # Positive prompt
+    inputs_pp = [prompt_input, default_pp]
+    combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
+    # Negative prompt
+    inputs_np = [negative_prompt_input, default_np]
+    combined_np = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_np]))
+
+    txt2img_payload = {
+        "prompt": combined_pp,
+        "negative_prompt": combined_np,
+        "batch_size": 4,
         "seed": -1,
         "steps": 25,
         "width": 768,
@@ -57,7 +107,7 @@ def txt2img(prompt_input, negative_prompt_input, image_input):
             "Dynamic Prompts v2.17.1": {
                 "args": {
                     "0": True, # Dynamic Prompts enabled
-                    "1": True, # Combinatorial generation
+                    "1": False, # Combinatorial generation
                     "2": 1, # Combinatorial batches
                     "3": False, # Magic prompt
                     "4": False, # I'm feelinf lucky
@@ -233,7 +283,7 @@ image_input =  gr.Image(sources="upload", elem_id="input_image", label="Input Im
 prompt_input = gr.components.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
 negative_prompt_input = gr.components.Textbox(lines=2, placeholder="Enter what you don't want here", label="Negative prompt")
 # Outputs
-generated_image = gr.Image(elem_id="generated_image", label="Generated Image")
+generated_image = gr.Gallery(elem_id="generated_image", label="Generated Image")
 
 # Create the ui
 iface = gr.Interface(
@@ -241,7 +291,7 @@ iface = gr.Interface(
     inputs=[
         prompt_input,
         negative_prompt_input,
-        image_input,
+        #image_input,
     ],
     outputs=[
         generated_image,

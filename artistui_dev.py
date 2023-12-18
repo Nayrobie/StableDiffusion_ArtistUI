@@ -6,6 +6,7 @@ import json
 import cv2
 from PIL.ExifTags import TAGS
 
+# genai_env\Scripts\activate
 # A1111 API
 # url: EKO 1 = "http://10.2.5.35:7860/?__theme=dark" / EKO 2 = "http://10.2.4.15:7860/?__theme=dark"
 url = "http://10.2.5.35:7860"
@@ -13,7 +14,7 @@ url = "http://10.2.5.35:7860"
 # Gradio UI: http://127.0.0.1:7860/?__theme=dark
 
 #__________________Config____________________
-model_checkpoint = "revAnimated_v122.safetensors [4199bcdd14]"
+model_checkpoint = "realisticVisionV20_v20NoVAE.safetensors [c0d1994c73]"
 controlnet_0 = "canny"
 controlnet_1 = "depth_midas"
 #____________________________________________
@@ -80,11 +81,12 @@ def txt2img(prompt_input, negative_prompt_input, image_input):
         
         if i == 0:  # Print infotext for the first image only
             jsoninfo = json.loads(r['info'])
-            print("\n________________Debug Info Text________________\n")
+            print("\n________________Info Text________________")
             print(f"Positive prompt: {jsoninfo['infotexts'][0]}")
 
     return image_paths
 
+# function to test:
 def txt2img_test_dynamic_prompt(prompt_input, negative_prompt_input, image_input):
     # Positive prompt
     inputs_pp = [prompt_input, default_pp]
@@ -202,6 +204,8 @@ def img2img(prompt_input, negative_prompt_input, image_input):
     return image_path
 
 def txt2img_controlnet(prompt_input, negative_prompt_input, image_input):
+    """
+    """
     # Positive prompt
     inputs_pp = [prompt_input, default_pp]
     combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
@@ -286,17 +290,18 @@ negative_prompt_input = gr.components.Textbox(lines=2, placeholder="Enter what y
 generated_image = gr.Gallery(elem_id="generated_image", label="Generated Image")
 
 # Create the ui
-iface = gr.Interface(
-    fn=txt2img,
-    inputs=[
+ui = gr.Interface(
+    fn = txt2img,
+    inputs = [
         prompt_input,
         negative_prompt_input,
-        #image_input,
+        image_input
     ],
-    outputs=[
+    outputs = [
         generated_image,
     ],
-    title="Stable Diffusion Artist UI",
+    title ="Stable Diffusion Artist UI Pipe",
+    allow_flagging = "never"
 )
 
 # Display the generated image above the output components
@@ -305,7 +310,5 @@ def update_image(image_path):
         with open(image_path, "rb") as img_file:
             return img_file.read()
 
-iface.test_command = update_image
-
 # Run the ui
-iface.launch()
+ui.launch()

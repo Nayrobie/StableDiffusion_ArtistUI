@@ -1,0 +1,9 @@
+# Ignore genai_env directory
+genai_env/
+
+# Ignore image_output directory
+image_output/
+
+# Ignore flagged directory
+flagged/
+/genai_env/Lib/site-packages/*.*

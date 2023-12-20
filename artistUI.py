@@ -1,3 +1,5 @@
+# Version 1.0
+
 import gradio as gr
 import requests
 import os

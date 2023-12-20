@@ -4,10 +4,11 @@ Released versions:
 * v1.0 a simplified web ui working with stable diffusion models. Users can enter a prompt and a negative prompt, press submit and get 4 images generated. The model, sampler, and other parameters can't be chosen by the users, and a default positive and a default negative prompt are added in the background to enhance the generated image and so that users don't have to write a long prompt.
 
 Developpement versions:
-* v2.0 this version focuses on the first step of a character workflow using ControlNet openpose model. User should uploada character sheet image and enter a prompt to generate 1 image.
-* v2.1 in this version, the reference image is no longer in the web UI inputs, it's harcoded so that users only have to enter a prompt to get a character sheet.
+* v2.0 focuses on the first step of a character workflow using ControlNet openpose model. User should uploada character sheet image and enter a prompt to generate 1 image.
+* v2.1 the reference image is no longer in the web UI inputs, it's harcoded so that users only have to enter a prompt to get a character sheet.
 * v2.2 now 4 character sheet images get generated. There are displayed as a gallery in the web UI for users to choose their favourite one.
-* v2.3 
+* v2.3 adds the 2nd step of the character workflow to upscale the image chosen from the 1st step
+* v2.4 adds the 4th step to the character workflow with the final upscale and the face upscale with the aDetailer extension
 
 ## Description
 This project involves creating a simplified user interface powered by Stable Diffusion, an AI-based system that generates images. The interface allows users to input prompts, generating multiple images that fulfill the provided criteria and restrictions. It utilizes Gradio for the user interface and integrates with Stable Diffusion APIs to generate and display images based on user inputs. 

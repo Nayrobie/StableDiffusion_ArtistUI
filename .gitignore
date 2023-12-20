@@ -1,9 +1,6 @@
-# Ignore genai_env directory
 genai_env/
-
-# Ignore image_output directory
 image_output/
-
-# Ignore flagged directory
 flagged/
-/genai_env/Lib/site-packages/*.*
+
+character_sheet_model.jpg
+step_1.jpg

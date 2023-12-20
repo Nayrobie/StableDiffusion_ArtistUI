@@ -1,4 +1,4 @@
-# Version 2.1
+# Version 2.2
 
 import gradio as gr
 import requests
@@ -18,23 +18,29 @@ url = "http://10.2.5.35:7860"
 # Find the directory where the script is running
 cwd = os.getcwd()
 
-# default prompts, hidden from users
+# Hidden prompts
 default_pp = "highly detailed, masterpiece, 8k, uhd"
-default_np = "watermark, text, censored, deformed, bad anatomy, disfigured, poorly drawn face, mutated, extra limb, ugly, poorly drawn hands, missing limb, floating limbs, disconnected limbs, disconnected head, malformed hands, long neck, mutated hands and fingers, bad hands, missing fingers, cropped, worst quality, low quality, mutation, poorly drawn, huge calf, bad hands, fused hand, missing hand, disappearing arms, disappearing thigh, disappearing calf, disappearing legs, missing fingers, fused fingers, abnormal eye proportion, Abnormal hands, abnormal legs, abnormal feet, abnormal fingers"
-
-#__________________Config____________________
-model_checkpoint = "realisticVisionV20_v20NoVAE.safetensors [c0d1994c73]"
+default_np = "watermark, (text:1.2), naked, nsfw, deformed, bad anatomy, disfigured, mutated, fused fingers, extra fingers"
+chara_sheet = "Character sheet concept art, full body lenght, (plain background:1.2)"
 
 def encode_image_to_base64(image_data):
     _, buffer = cv2.imencode('.png', image_data)
     encoded_string = base64.b64encode(buffer)
     return encoded_string.decode('utf-8')
 
-def step_1_controlnet(prompt_input, negative_prompt_input):
+def step_1_txt2img_controlnet(prompt_input, negative_prompt_input):
     """
+    The 1st step of the character workflow generates 4 images with the parameters set for fast image
+    generation with low resolution. ControlNet Open Pose is used to get a character sheet reference
+    image that has 4 poses of 1 character for each images.
+    Users only have to write a short prompt, for example: "an astronaut wearing a backpack", 
+    then they can choose their favourite image out of the 4 generated ones.
     """
+    # Model
+    model_checkpoint = "realisticVisionV20_v20NoVAE.safetensors [c0d1994c73]"
+
     # Positive prompt
-    inputs_pp = [prompt_input, default_pp]
+    inputs_pp = [chara_sheet, prompt_input, default_pp]
     combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
     # Negative prompt
     inputs_np = [negative_prompt_input, default_np]
@@ -48,9 +54,9 @@ def step_1_controlnet(prompt_input, negative_prompt_input):
     controlnet_payload = {
         "prompt": combined_pp,
         "negative_prompt": combined_np,
-        "batch_size": 1,
+        "batch_size": 4,
         "seed": -1,
-        "steps": 25,
+        "steps": 20,
         "width": 1024,
         "height": 476,
         "sampler_name": "Euler a",
@@ -84,29 +90,31 @@ def step_1_controlnet(prompt_input, negative_prompt_input):
     txt2img_controlnet_response = requests.post(url=f'{url}/sdapi/v1/txt2img', json=controlnet_payload)
     r = txt2img_controlnet_response.json()
 
-    # Save the image locally
-    image_data = r.get("images", [])
+    # Extract and save images locally
     output_folder = "image_output"
-    image_path = os.path.join(output_folder, "generated_image.jpg")
-    with open(image_path, "wb") as img_file:
-        img_file.write(base64.b64decode(r["images"][0]))
+    image_paths = []
+    for idx, image in enumerate(r.get("images", [])):
+        image_path = os.path.join(output_folder, f"generated_image_{idx}.jpg")
+        with open(image_path, "wb") as img_file:
+            img_file.write(base64.b64decode(image))
+        image_paths.append(image_path)
         
     # Extract and print infotexts
     jsoninfo = json.loads(r['info'])
     print("\n________________Info Text________________")
     print(f"Positive prompt: {jsoninfo['infotexts'][0]}")
     
-    return image_path
+    return image_paths
 
 # Inputs
 prompt_input = gr.components.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
 negative_prompt_input = gr.components.Textbox(lines=2, placeholder="Enter what you don't want here", label="Negative prompt")
 # Outputs
-generated_image = gr.Image(elem_id="generated_image", label="Generated Image")
+generated_image = gr.Gallery(elem_id="generated_image", label="Generated Image")
 
 # Create the ui
 ui = gr.Interface(
-    fn = step_1_controlnet,
+    fn = step_1_txt2img_controlnet,
     inputs = [
         prompt_input,
         negative_prompt_input

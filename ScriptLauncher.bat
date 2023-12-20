@@ -1,6 +1,6 @@
 @echo off
 call genai_env\Scripts\activate
-artist_ui.py
+artistUI.py
 pause
 deactivate
 exit

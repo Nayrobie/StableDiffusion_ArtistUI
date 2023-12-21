@@ -1,4 +1,4 @@
-# Version 2.4
+# Version 2.5
 
 import gradio as gr
 import requests
@@ -47,7 +47,7 @@ def step_1_txt2img_controlnet(prompt_input, negative_prompt_input):
     combined_np = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_np]))
     
     # Fetch the openpose reference image from the working directory
-    image_path = os.path.join(os.getcwd(), "character_sheet_model.jpg")
+    image_path = os.path.join(os.getcwd(), "image_input\character_sheet_model.jpg")
     image_input = cv2.imread(image_path)
     image_data = encode_image_to_base64(image_input)
     
@@ -122,7 +122,7 @@ def step_2_img2img(prompt_input, negative_prompt_input):
     combined_np = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_np]))
     
     # Fetch the openpose reference image from the working directory
-    image_path = os.path.join(os.getcwd(), "step_1.jpg")
+    image_path = os.path.join(os.getcwd(), "image_input\step_1.jpg")
     image_input = cv2.imread(image_path)
     image_data = encode_image_to_base64(image_input)
     
@@ -172,8 +172,69 @@ def step_2_img2img(prompt_input, negative_prompt_input):
     return image_paths
 
 # Step 3 is 50% in photoshop and 50% inpainting the sketch area (don't know how to automate the inpainting part)
+def step_3_img2img(prompt_input, negative_prompt_input):
+    """
+    2nd step is to upscale the image chosen from the 1st step.
+    """
 
-def step_4_img2img(prompt_input, negative_prompt_input, adetailer_prompt_input, adetailer_negative_prompt_input):
+    # Positive prompt
+    inputs_pp = [chara_sheet, prompt_input, default_pp]
+    combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
+    # Negative prompt
+    inputs_np = [negative_prompt_input, default_np]
+    combined_np = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_np]))
+    
+    # Fetch the openpose reference image from the working directory
+    image_path = os.path.join(os.getcwd(), "image_input\step_1.jpg")
+    image_input = cv2.imread(image_path)
+    image_data = encode_image_to_base64(image_input)
+    
+    img2img_payload = {
+        "init_images": [image_data],
+        "denoising_strength":0.45,
+        "prompt": combined_pp,
+        "negative_prompt": combined_np,
+        "batch_size": 2,
+        "seed": -1,
+        "steps": 30,
+        "width": 1433,
+        "height": 660,
+        "sampler_name": "DPM++ 2M Karras",
+        "save_images": True
+    }
+
+    # For the script to override the model chosen on A1111    
+    override_settings = {
+        "sd_model_checkpoint": model_checkpoint
+    }
+    override_payload = {
+        "override_settings": override_settings
+    }
+    img2img_payload.update(override_payload)
+    
+    img2img_response = requests.post(url=f'{url}/sdapi/v1/img2img', json=img2img_payload)
+    r = img2img_response.json()
+
+    # Extract and save images locally
+    output_folder = "image_output"
+    image_paths = []
+    for idx, image in enumerate(r.get("images", [])):
+        image_path = os.path.join(output_folder, f"generated_image_{idx}.jpg")
+        with open(image_path, "wb") as img_file:
+            img_file.write(base64.b64decode(image))
+        image_paths.append(image_path)
+        
+    # Extract and print infotexts
+    if 'info' in r:
+        jsoninfo = json.loads(r['info'])
+        print("________________Info Text________________")
+        print(f"Positive prompt: {jsoninfo['infotexts'][0]}")
+    else:
+        print("Info key not found in response:", r)
+    
+    return image_paths
+
+def step_4_img2img(prompt_input, negative_prompt_input, adetailer_prompt_input):
     """
     This is the final upscale part, with the use of the aDetailer extension to regerate the face of the character.
     """
@@ -185,7 +246,7 @@ def step_4_img2img(prompt_input, negative_prompt_input, adetailer_prompt_input, 
     combined_np = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_np]))
     
     # Fetch the openpose reference image from the working directory
-    image_path = os.path.join(os.getcwd(), "step_3-2.jpg")
+    image_path = os.path.join(os.getcwd(), "image_input\step_3-2.jpg")
     image_input = cv2.imread(image_path)
     image_data = encode_image_to_base64(image_input)
      
@@ -229,7 +290,7 @@ def step_4_img2img(prompt_input, negative_prompt_input, adetailer_prompt_input, 
                         "ad_mask_merge_invert" : "None",
                         "ad_mask_min_ratio" : 0,
                         "ad_model" : "face_yolov8n.pt",
-                        "ad_negative_prompt" : adetailer_negative_prompt_input,
+                        "ad_negative_prompt" : "",
                         "ad_noise_multiplier" : 1,
                         "ad_prompt" : adetailer_prompt_input,
                         "ad_restore_face" : False,
@@ -360,7 +421,7 @@ def txt2img_test_dynamic_prompt():
 prompt_input = gr.components.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
 negative_prompt_input = gr.components.Textbox(lines=2, placeholder="Enter what you don't want here", label="Negative prompt")
 adetailer_prompt_input = gr.components.Textbox(lines=2, placeholder="Enter the description of the face here", label="Prompt for the face")
-adetailer_negative_prompt_input = gr.components.Textbox(lines=2, placeholder="Enter what you don't want for the face here", label="Negative prompt for the face")
+#adetailer_negative_prompt_input = gr.components.Textbox(lines=2, placeholder="Enter what you don't want for the face here", label="Negative prompt for the face")
 # Outputs
 generated_image = gr.Gallery(elem_id="generated_image", label="Generated Image")
 
@@ -370,8 +431,8 @@ ui = gr.Interface(
     inputs = [
         prompt_input,
         negative_prompt_input,
-        adetailer_prompt_input,
-        adetailer_negative_prompt_input
+        #adetailer_prompt_input,
+        #adetailer_negative_prompt_input
         ],
     outputs = [
         generated_image,

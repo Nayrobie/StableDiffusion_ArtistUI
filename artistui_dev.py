@@ -1,3 +1,5 @@
+# Version 2.5
+
 import gradio as gr
 import requests
 import os
@@ -9,51 +11,71 @@ from PIL.ExifTags import TAGS
 # genai_env\Scripts\activate
 # A1111 API
 # url: EKO 1 = "http://10.2.5.35:7860/?__theme=dark" / EKO 2 = "http://10.2.4.15:7860/?__theme=dark"
-url = "http://10.2.5.35:7860"
+url = "http://10.2.4.15:7860"
 # Doc http://10.2.4.15:7860/docs#/default
 # Gradio UI: http://127.0.0.1:7860/?__theme=dark
 
-#__________________Config____________________
-model_checkpoint = "realisticVisionV20_v20NoVAE.safetensors [c0d1994c73]"
-controlnet_0 = "canny"
-controlnet_1 = "depth_midas"
-#____________________________________________
+# Find the directory where the script is running
+cwd = os.getcwd()
 
-# Maps the controlnet modules above to the right models
-controlnet_mapping = {
-    "canny": "control_v11p_sd15_canny [d14c016b]",
-    "depth_midas": "control_v11f1p_sd15_depth [cfd03158]",
-    "lineart": "control_v11p_sd15_lineart [43d4be0d]",
-    "openpose_full": "control_v11p_sd15_openpose [cab727d4]",
-    "scribble_pidinet": "control_v11p_sd15_scribble [d4ba51ff]",
-}
-# default prompts, hidden from users
+# Model
+model_checkpoint = "dreamshaper_8.safetensors [879db523c3]"
+
+# Hidden prompts
 default_pp = "highly detailed, masterpiece, 8k, uhd"
-default_np = "watermark, text, censored, deformed, bad anatomy, disfigured, poorly drawn face, mutated, extra limb, ugly, poorly drawn hands, missing limb, floating limbs, disconnected limbs, disconnected head, malformed hands, long neck, mutated hands and fingers, bad hands, missing fingers, cropped, worst quality, low quality, mutation, poorly drawn, huge calf, bad hands, fused hand, missing hand, disappearing arms, disappearing thigh, disappearing calf, disappearing legs, missing fingers, fused fingers, abnormal eye proportion, Abnormal hands, abnormal legs, abnormal feet, abnormal fingers"
+default_np = "watermark, (text:1.2), naked, nsfw, deformed, bad anatomy, disfigured, mutated, fused fingers, extra fingers"
+chara_sheet = "Character sheet concept art, full body length, (plain background:1.2)"
 
 def encode_image_to_base64(image_data):
     _, buffer = cv2.imencode('.png', image_data)
     encoded_string = base64.b64encode(buffer)
     return encoded_string.decode('utf-8')
 
-def txt2img(prompt_input, negative_prompt_input, image_input):
+def step_1_txt2img_controlnet(prompt_input, negative_prompt_input):
+    """
+    The 1st step of the character workflow generates 4 images.
+    The parameters are set for fast generation but low quality.
+    ControlNet Open Pose is used to get a character sheet reference, the reference image has 4 T-poses.
+    Users only have to write a short prompt, for example: "an astronaut wearing a backpack".
+    """
+
     # Positive prompt
-    inputs_pp = [prompt_input, default_pp]
+    inputs_pp = [chara_sheet, prompt_input, default_pp]
     combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
     # Negative prompt
     inputs_np = [negative_prompt_input, default_np]
     combined_np = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_np]))
-
-    txt2img_payload = {
+    
+    # Fetch the openpose reference image from the working directory
+    image_path = os.path.join(os.getcwd(), "image_input\character_sheet_model.jpg")
+    image_input = cv2.imread(image_path)
+    image_data = encode_image_to_base64(image_input)
+    
+    controlnet_payload = {
         "prompt": combined_pp,
         "negative_prompt": combined_np,
         "batch_size": 4,
         "seed": -1,
-        "steps": 25,
-        "width": 768,
-        "height": 768,
+        "steps": 20,
+        "width": 1024,
+        "height": 476,
         "sampler_name": "Euler a",
         "save_images": True,
+        "alwayson_scripts": {
+            "controlnet": {
+                "args": [
+                    {
+                        "input_image": image_data,
+                        "model" :"control_v11p_sd15_openpose [cab727d4]",
+                        "module" : "openpose_full",
+                        "weight": 1,
+                        "resize_mode": "Scale to Fit (Inner Fit)",
+                        "control_mode": "Balanced",
+                        "pixel_perfect": True
+                    },
+                ]
+            }
+        }
     }
 
     # For the script to override the model chosen on A1111    
@@ -63,48 +85,311 @@ def txt2img(prompt_input, negative_prompt_input, image_input):
     override_payload = {
         "override_settings": override_settings
     }
-    txt2img_payload.update(override_payload)
+    controlnet_payload.update(override_payload)
     
-    txt2img_response = requests.post(url=f'{url}/sdapi/v1/txt2img', json=txt2img_payload)
-    r = txt2img_response.json()
+    txt2img_controlnet_response = requests.post(url=f'{url}/sdapi/v1/txt2img', json=controlnet_payload)
+    r = txt2img_controlnet_response.json()
 
-     # Save the images locally (modification for >1 image)
+    # Extract and save images locally
     output_folder = "image_output"
-    os.makedirs(output_folder, exist_ok=True)  # Ensure the output folder exists
-    
     image_paths = []
-    for i, img_data in enumerate(r.get("images", [])):
-        image_path = os.path.join(output_folder, f"generated_image_{i}.jpg")
+    for idx, image in enumerate(r.get("images", [])):
+        image_path = os.path.join(output_folder, f"generated_image_{idx}.jpg")
         with open(image_path, "wb") as img_file:
-            img_file.write(base64.b64decode(img_data))
+            img_file.write(base64.b64decode(image))
         image_paths.append(image_path)
         
-        if i == 0:  # Print infotext for the first image only
-            jsoninfo = json.loads(r['info'])
-            print("\n________________Info Text________________")
-            print(f"Positive prompt: {jsoninfo['infotexts'][0]}")
-
+    # Extract and print infotexts
+    if 'info' in r:
+        jsoninfo = json.loads(r['info'])
+        print("________________Info Text________________")
+        print(f"Positive prompt: {jsoninfo['infotexts'][0]}")
+    else:
+        print("Info key not found in response:", r)
+    
     return image_paths
 
-# function to test:
-def txt2img_test_dynamic_prompt(prompt_input, negative_prompt_input, image_input):
+def step_2_img2img(prompt_input, negative_prompt_input):
+    """
+    2nd step is to upscale the image chosen from the 1st step.
+    """
+
     # Positive prompt
-    inputs_pp = [prompt_input, default_pp]
+    inputs_pp = [chara_sheet, prompt_input, default_pp]
     combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
     # Negative prompt
     inputs_np = [negative_prompt_input, default_np]
     combined_np = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_np]))
-
-    txt2img_payload = {
+    
+    # Fetch the openpose reference image from the working directory
+    image_path = os.path.join(os.getcwd(), "image_input\step_1.jpg")
+    image_input = cv2.imread(image_path)
+    image_data = encode_image_to_base64(image_input)
+    
+    img2img_payload = {
+        "init_images": [image_data],
+        "denoising_strength":0.45,
         "prompt": combined_pp,
         "negative_prompt": combined_np,
-        "batch_size": 4,
+        "batch_size": 2,
         "seed": -1,
-        "steps": 25,
-        "width": 768,
-        "height": 768,
-        "sampler_name": "Euler a",
+        "steps": 30,
+        "width": 1433,
+        "height": 660,
+        "sampler_name": "DPM++ 2M Karras",
+        "save_images": True
+    }
+
+    # For the script to override the model chosen on A1111    
+    override_settings = {
+        "sd_model_checkpoint": model_checkpoint
+    }
+    override_payload = {
+        "override_settings": override_settings
+    }
+    img2img_payload.update(override_payload)
+    
+    img2img_response = requests.post(url=f'{url}/sdapi/v1/img2img', json=img2img_payload)
+    r = img2img_response.json()
+
+    # Extract and save images locally
+    output_folder = "image_output"
+    image_paths = []
+    for idx, image in enumerate(r.get("images", [])):
+        image_path = os.path.join(output_folder, f"generated_image_{idx}.jpg")
+        with open(image_path, "wb") as img_file:
+            img_file.write(base64.b64decode(image))
+        image_paths.append(image_path)
+        
+    # Extract and print infotexts
+    if 'info' in r:
+        jsoninfo = json.loads(r['info'])
+        print("________________Info Text________________")
+        print(f"Positive prompt: {jsoninfo['infotexts'][0]}")
+    else:
+        print("Info key not found in response:", r)
+    
+    return image_paths
+
+# Step 3 is 50% in photoshop and 50% inpainting the sketch area (don't know how to automate the inpainting part)
+def step_3_img2img(prompt_input, negative_prompt_input):
+    """
+    2nd step is to upscale the image chosen from the 1st step.
+    """
+
+    # Positive prompt
+    inputs_pp = [chara_sheet, prompt_input, default_pp]
+    combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
+    # Negative prompt
+    inputs_np = [negative_prompt_input, default_np]
+    combined_np = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_np]))
+    
+    # Fetch the openpose reference image from the working directory
+    image_path = os.path.join(os.getcwd(), "image_input\step_1.jpg")
+    image_input = cv2.imread(image_path)
+    image_data = encode_image_to_base64(image_input)
+    
+    img2img_payload = {
+        "init_images": [image_data],
+        "denoising_strength":0.45,
+        "prompt": combined_pp,
+        "negative_prompt": combined_np,
+        "batch_size": 2,
+        "seed": -1,
+        "steps": 30,
+        "width": 1433,
+        "height": 660,
+        "sampler_name": "DPM++ 2M Karras",
+        "save_images": True
+    }
+
+    # For the script to override the model chosen on A1111    
+    override_settings = {
+        "sd_model_checkpoint": model_checkpoint
+    }
+    override_payload = {
+        "override_settings": override_settings
+    }
+    img2img_payload.update(override_payload)
+    
+    img2img_response = requests.post(url=f'{url}/sdapi/v1/img2img', json=img2img_payload)
+    r = img2img_response.json()
+
+    # Extract and save images locally
+    output_folder = "image_output"
+    image_paths = []
+    for idx, image in enumerate(r.get("images", [])):
+        image_path = os.path.join(output_folder, f"generated_image_{idx}.jpg")
+        with open(image_path, "wb") as img_file:
+            img_file.write(base64.b64decode(image))
+        image_paths.append(image_path)
+        
+    # Extract and print infotexts
+    if 'info' in r:
+        jsoninfo = json.loads(r['info'])
+        print("________________Info Text________________")
+        print(f"Positive prompt: {jsoninfo['infotexts'][0]}")
+    else:
+        print("Info key not found in response:", r)
+    
+    return image_paths
+
+def step_4_img2img(prompt_input, negative_prompt_input, adetailer_prompt_input):
+    """
+    This is the final upscale part, with the use of the aDetailer extension to regerate the face of the character.
+    """
+    # Positive prompt
+    inputs_pp = [chara_sheet, prompt_input, default_pp]
+    combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
+    # Negative prompt
+    inputs_np = [negative_prompt_input, default_np]
+    combined_np = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_np]))
+    
+    # Fetch the openpose reference image from the working directory
+    image_path = os.path.join(os.getcwd(), "image_input\step_3-2.jpg")
+    image_input = cv2.imread(image_path)
+    image_data = encode_image_to_base64(image_input)
+     
+    img2img_payload = {
+        "init_images": [image_data],
+        "denoising_strength":0.3,
+        "prompt": combined_pp,
+        "negative_prompt": combined_np,
+        "batch_size": 1,
+        "seed": -1,
+        "steps": 30,
+        "width": 1718,
+        "height": 787,
+        "sampler_name": "DPM++ 2M Karras",
         "save_images": True,
+        "alwayson_scripts": {
+            "ADetailer": {
+                "args": [
+                    {
+                        "0": True,
+                        "1": False,
+                        "2": {
+                        "ad_cfg_scale" : 7,
+                        "ad_checkpoint" : "Use same checkpoint",
+                        "ad_clip_skip" : 1,
+                        "ad_confidence" : 0.3,
+                        "ad_controlnet_guidance_end" : 1,
+                        "ad_controlnet_guidance_start" : 0,
+                        "ad_controlnet_model" : "None",
+                        "ad_controlnet_module" : "None",
+                        "ad_controlnet_weight" : 1,
+                        "ad_denoising_strength" : 0.4,
+                        "ad_dilate_erode" : 4,
+                        "ad_inpaint_height" : 512,
+                        "ad_inpaint_only_masked" : True,
+                        "ad_inpaint_only_masked_padding" : 32,
+                        "ad_inpaint_width" : 512,
+                        "ad_mask_blur" : 4,
+                        "ad_mask_k_largest" : 0,
+                        "ad_mask_max_ratio" : 1,
+                        "ad_mask_merge_invert" : "None",
+                        "ad_mask_min_ratio" : 0,
+                        "ad_model" : "face_yolov8n.pt",
+                        "ad_negative_prompt" : "",
+                        "ad_noise_multiplier" : 1,
+                        "ad_prompt" : adetailer_prompt_input,
+                        "ad_restore_face" : False,
+                        "ad_sampler" : "DPM++ 2M Karras",
+                        "ad_steps" : 28,
+                        "ad_use_cfg_scale" : False,
+                        "ad_use_checkpoint" : False,
+                        "ad_use_clip_skip" : False,
+                        "ad_use_inpaint_width_height" : False,
+                        "ad_use_noise_multiplier" : False,
+                        "ad_use_sampler" : False,
+                        "ad_use_steps" : False,
+                        "ad_use_vae" : False,
+                        "ad_vae" : "Use same VAE",
+                        "ad_x_offset" : 0,
+                        "ad_y_offset" : 0,
+                        "is_api" : [ ]
+                        },
+                        "3" : {
+                        "ad_cfg_scale" : 7,
+                        "ad_checkpoint" : "Use same checkpoint",
+                        "ad_clip_skip" : 1,
+                        "ad_confidence" : 0.3,
+                        "ad_controlnet_guidance_end" : 1,
+                        "ad_controlnet_guidance_start" : 0,
+                        "ad_controlnet_model" : "None",
+                        "ad_controlnet_module" : "None",
+                        "ad_controlnet_weight" : 1,
+                        "ad_denoising_strength" : 0.4,
+                        "ad_dilate_erode" : 4,
+                        "ad_inpaint_height" : 512,
+                        "ad_inpaint_only_masked" : True,
+                        "ad_inpaint_only_masked_padding" : 32,
+                        "ad_inpaint_width" : 512,
+                        "ad_mask_blur" : 4,
+                        "ad_mask_k_largest" : 0,
+                        "ad_mask_max_ratio" : 1,
+                        "ad_mask_merge_invert" : "None",
+                        "ad_mask_min_ratio" : 0,
+                        "ad_model" : "None",
+                        "ad_negative_prompt" : "",
+                        "ad_noise_multiplier" : 1,
+                        "ad_prompt" : "",
+                        "ad_restore_face" : False,
+                        "ad_sampler" : "DPM++ 2M Karras",
+                        "ad_steps" : 28,
+                        "ad_use_cfg_scale" : False,
+                        "ad_use_checkpoint" : False,
+                        "ad_use_clip_skip" : False,
+                        "ad_use_inpaint_width_height" : False,
+                        "ad_use_noise_multiplier" : False,
+                        "ad_use_sampler" : False,
+                        "ad_use_steps" : False,
+                        "ad_use_vae" : False,
+                        "ad_vae" : "Use same VAE",
+                        "ad_x_offset" : 0,
+                        "ad_y_offset" : 0,
+                        "is_api" : [ ]
+                        }
+                     }    
+                ]
+            }
+        }
+    }
+
+    # For the script to override the model chosen on A1111    
+    override_settings = {
+        "sd_model_checkpoint": model_checkpoint
+    }
+    override_payload = {
+        "override_settings": override_settings
+    }
+    img2img_payload.update(override_payload)
+    
+    img2img_response = requests.post(url=f'{url}/sdapi/v1/img2img', json=img2img_payload)
+    r = img2img_response.json()
+
+    # Extract and save images locally
+    output_folder = "image_output"
+    image_paths = []
+    for idx, image in enumerate(r.get("images", [])):
+        image_path = os.path.join(output_folder, f"generated_image_{idx}.jpg")
+        with open(image_path, "wb") as img_file:
+            img_file.write(base64.b64decode(image))
+        image_paths.append(image_path)
+        
+    # Extract and print infotexts
+    if 'info' in r:
+        jsoninfo = json.loads(r['info'])
+        print("________________Info Text________________")
+        print(f"Positive prompt: {jsoninfo['infotexts'][0]}")
+    else:
+        print("Info key not found in response:", r)
+    
+    return image_paths
+
+# Not needed now:
+def txt2img_test_dynamic_prompt():
+    """
         "alwayson_scripts": {
             "Dynamic Prompts v2.17.1": {
                 "args": {
@@ -130,185 +415,31 @@ def txt2img_test_dynamic_prompt(prompt_input, negative_prompt_input, image_input
             }
         }
     }
-
-    # For the script to override the model chosen on A1111    
-    override_settings = {
-        "sd_model_checkpoint": model_checkpoint
-    }
-    override_payload = {
-        "override_settings": override_settings
-    }
-    txt2img_payload.update(override_payload)
-    
-    txt2img_response = requests.post(url=f'{url}/sdapi/v1/txt2img', json=txt2img_payload)
-    r = txt2img_response.json()
-
-    # Save the image locally
-    image_data = r.get("images", [])
-    output_folder = "image_output"
-    image_path = os.path.join(output_folder, "generated_image.jpg")
-    with open(image_path, "wb") as img_file:
-        img_file.write(base64.b64decode(r["images"][0]))
-        
-    # Extract and print infotexts
-    jsoninfo = json.loads(r['info'])
-    print("Positive prompt:", jsoninfo["infotexts"][0]) # Debug info on the terminal
-    return image_path
-
-def img2img(prompt_input, negative_prompt_input, image_input):
-    # Positive prompt
-    inputs_pp = [prompt_input, default_pp]
-    combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
-    # Negative prompt
-    inputs_np = [negative_prompt_input, default_np]
-    combined_np = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_np]))
-
-    image_data = encode_image_to_base64(image_input)
-
-    img2img_payload = {
-        "init_images": [image_data],
-        "denoising_strength":0.5,
-        "prompt": combined_pp,
-        "negative_prompt": combined_np,
-        "batch_size": 1,
-        "seed": -1,
-        "steps": 25,
-        "width": 768,
-        "height": 768,
-        "sampler_name": "Euler a",
-        "save_images": True
-    }
-
-    # For the script to override the model chosen on A1111    
-    override_settings = {
-        "sd_model_checkpoint": model_checkpoint
-    }
-    override_payload = {
-        "override_settings": override_settings
-    }
-    img2img_payload.update(override_payload)
-    
-    img2img_response = requests.post(url=f'{url}/sdapi/v1/img2img', json=img2img_payload)
-    r = img2img_response.json()
-
-    # Save the image locally
-    image_data = r.get("images", [])
-    output_folder = "image_output"
-    image_path = os.path.join(output_folder, "generated_image.jpg")
-    with open(image_path, "wb") as img_file:
-        img_file.write(base64.b64decode(r["images"][0]))
-        
-    # Extract and print infotexts
-    jsoninfo = json.loads(r['info'])
-    print("Positive prompt:", jsoninfo["infotexts"][0]) # Debug info on the terminal
-    return image_path
-
-def txt2img_controlnet(prompt_input, negative_prompt_input, image_input):
     """
-    """
-    # Positive prompt
-    inputs_pp = [prompt_input, default_pp]
-    combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
-    # Negative prompt
-    inputs_np = [negative_prompt_input, default_np]
-    combined_np = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_np]))
-    # input image
-    image_data = encode_image_to_base64(image_input)
-    # Controlnet mapping to the right model
-    if controlnet_0 not in controlnet_mapping:
-        raise ValueError(f"Unsupported controlnet module: {controlnet_0}")
-    controlnet_model_0 = controlnet_mapping[controlnet_0]
-    if controlnet_1 not in controlnet_mapping:
-        raise ValueError(f"Unsupported controlnet module: {controlnet_1}")
-    controlnet_model_1 = controlnet_mapping[controlnet_1]
-    
-    controlnet_payload = {
-        "prompt": combined_pp,
-        "negative_prompt": combined_np,
-        "batch_size": 1,
-        "seed": -1,
-        "steps": 25,
-        "width": 768,
-        "height": 768,
-        "sampler_name": "Euler a",
-        "save_images": True,
-        "alwayson_scripts": {
-            "controlnet": {
-                "args": [
-                    {
-                        "input_image": image_data,
-                        "module": controlnet_0,
-                        "model": controlnet_model_0,
-                        "weight": 1,
-                        "resize_mode": "Scale to Fit (Inner Fit)",
-                        "control_mode": "Balanced",
-                        "pixel_perfect": True
-                    },
-                    {
-                        "input_image": image_data,
-                        "module": controlnet_1,
-                        "model": controlnet_model_1,
-                        "weight": 1,
-                        "resize_mode": "Scale to Fit (Inner Fit)",
-                        "control_mode": "Balanced",
-                        "pixel_perfect": True
-                    }
-                ]
-            }
-        }
-    }
 
-    # For the script to override the model chosen on A1111    
-    override_settings = {
-        "sd_model_checkpoint": model_checkpoint
-    }
-    override_payload = {
-        "override_settings": override_settings
-    }
-    controlnet_payload.update(override_payload)
-    
-    txt2img_controlnet_response = requests.post(url=f'{url}/sdapi/v1/txt2img', json=controlnet_payload)
-    r = txt2img_controlnet_response.json()
-
-    # Save the image locally
-    image_data = r.get("images", [])
-    output_folder = "image_output"
-    image_path = os.path.join(output_folder, "generated_image.jpg")
-    with open(image_path, "wb") as img_file:
-        img_file.write(base64.b64decode(r["images"][0]))
-        
-    # Extract and print infotexts
-    jsoninfo = json.loads(r['info'])
-    print("Positive prompt:", jsoninfo["infotexts"][0]) # Debug info on the terminal
-    return image_path
-    
 # Inputs
-image_input =  gr.Image(sources="upload", elem_id="input_image", label="Input Image")
 prompt_input = gr.components.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
 negative_prompt_input = gr.components.Textbox(lines=2, placeholder="Enter what you don't want here", label="Negative prompt")
+adetailer_prompt_input = gr.components.Textbox(lines=2, placeholder="Enter the description of the face here", label="Prompt for the face")
+#adetailer_negative_prompt_input = gr.components.Textbox(lines=2, placeholder="Enter what you don't want for the face here", label="Negative prompt for the face")
 # Outputs
 generated_image = gr.Gallery(elem_id="generated_image", label="Generated Image")
 
 # Create the ui
 ui = gr.Interface(
-    fn = txt2img,
+    fn = step_4_img2img,
     inputs = [
         prompt_input,
         negative_prompt_input,
-        image_input
-    ],
+        #adetailer_prompt_input,
+        #adetailer_negative_prompt_input
+        ],
     outputs = [
         generated_image,
     ],
-    title ="Stable Diffusion Artist UI Pipe",
+    title = "Stable Diffusion Artist UI Pipe",
     allow_flagging = "never"
 )
-
-# Display the generated image above the output components
-def update_image(image_path):
-    if image_path:
-        with open(image_path, "rb") as img_file:
-            return img_file.read()
 
 # Run the ui
 ui.launch()

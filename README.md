@@ -10,6 +10,8 @@ Developpement versions:
 * v2.3 adds the 2nd step of the character workflow to upscale the image chosen from the 1st step
 * v2.4 adds the 4th step to the character workflow with the final upscale and the face upscale with the aDetailer extension
 * v2.5 adds step 3 which is another img2img step like step 2 but without the upscaling, this step is to render the PhotoShop sketch (it replaces the workflow inpainting part as I can't find a way to automate the layering part)
+* v2.6 a first draft that adds a tab for each step of the workflow
+* v2.7 tabs and UI cleanup, photoshop upload to fix
 
 ## Description
 This project involves creating a simplified user interface powered by Stable Diffusion, an AI-based system that generates images. The interface allows users to input prompts, generating multiple images that fulfill the provided criteria and restrictions. It utilizes Gradio for the user interface and integrates with Stable Diffusion APIs to generate and display images based on user inputs. 

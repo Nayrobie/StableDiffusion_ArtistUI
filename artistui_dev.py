@@ -1,4 +1,4 @@
-# Version 2.6
+# Version 2.7
 
 import gradio as gr
 import requests
@@ -109,18 +109,11 @@ def step_1_txt2img_controlnet(prompt_input, negative_prompt_input):
     
     return image_paths
 
-def step_2_img2img(prompt_input, negative_prompt_input):
+def step_2_img2img():
     """
     2nd step is to upscale the image chosen from the 1st step.
     """
 
-    # Positive prompt
-    inputs_pp = [chara_sheet, prompt_input, default_pp]
-    combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
-    # Negative prompt
-    inputs_np = [negative_prompt_input, default_np]
-    combined_np = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_np]))
-    
     # Fetch the openpose reference image from the working directory
     image_path = os.path.join(os.getcwd(), "image_input\step_1.jpg")
     image_input = cv2.imread(image_path)
@@ -129,8 +122,8 @@ def step_2_img2img(prompt_input, negative_prompt_input):
     img2img_payload = {
         "init_images": [image_data],
         "denoising_strength":0.45,
-        "prompt": combined_pp,
-        "negative_prompt": combined_np,
+        "prompt": "",
+        "negative_prompt": "",
         "batch_size": 2,
         "seed": -1,
         "steps": 30,
@@ -172,28 +165,20 @@ def step_2_img2img(prompt_input, negative_prompt_input):
     return image_paths
 
 # Step 3 is 50% in photoshop and 50% inpainting the sketch area (don't know how to automate the inpainting part)
-def step_3_img2img(prompt_input, negative_prompt_input):
+def step_3_img2img(image_input_step_3):
     """
-    2nd step is to upscale the image chosen from the 1st step.
+    3rd step is like 2nd step but without the upscale. It's to generate the image again and render the sketch from Photoshop (from 3rd step)
     """
 
-    # Positive prompt
-    inputs_pp = [chara_sheet, prompt_input, default_pp]
-    combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
-    # Negative prompt
-    inputs_np = [negative_prompt_input, default_np]
-    combined_np = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_np]))
-    
-    # Fetch the openpose reference image from the working directory
-    image_path = os.path.join(os.getcwd(), "image_input\step_1.jpg")
-    image_input = cv2.imread(image_path)
+    # Upload the photoshop sketch from the UI
+    image_input = cv2.imread(image_input_step_3)
     image_data = encode_image_to_base64(image_input)
     
     img2img_payload = {
         "init_images": [image_data],
         "denoising_strength":0.45,
-        "prompt": combined_pp,
-        "negative_prompt": combined_np,
+        "prompt": "",
+        "negative_prompt": "",
         "batch_size": 2,
         "seed": -1,
         "steps": 30,
@@ -234,17 +219,11 @@ def step_3_img2img(prompt_input, negative_prompt_input):
     
     return image_paths
 
-def step_4_img2img(prompt_input, negative_prompt_input, adetailer_prompt_input):
+def step_4_img2img(adetailer_prompt_input):
     """
     This is the final upscale part, with the use of the aDetailer extension to regerate the face of the character.
     """
-    # Positive prompt
-    inputs_pp = [chara_sheet, prompt_input, default_pp]
-    combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
-    # Negative prompt
-    inputs_np = [negative_prompt_input, default_np]
-    combined_np = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_np]))
-    
+
     # Fetch the openpose reference image from the working directory
     image_path = os.path.join(os.getcwd(), "image_input\step_3-2.jpg")
     image_input = cv2.imread(image_path)
@@ -253,8 +232,8 @@ def step_4_img2img(prompt_input, negative_prompt_input, adetailer_prompt_input):
     img2img_payload = {
         "init_images": [image_data],
         "denoising_strength":0.3,
-        "prompt": combined_pp,
-        "negative_prompt": combined_np,
+        "prompt": "",
+        "negative_prompt": "",
         "batch_size": 1,
         "seed": -1,
         "steps": 30,
@@ -417,26 +396,17 @@ def txt2img_test_dynamic_prompt():
     }
     """
 
-# Inputs
-adetailer_prompt_input = gr.components.Textbox(lines=2, placeholder="Enter the description of the face here", label="Prompt for the face")
-#adetailer_negative_prompt_input = gr.components.Textbox(lines=2, placeholder="Enter what you don't want for the face here", label="Negative prompt for the face")
-# Outputs
-
 # All the input and output
 prompt_input_step_1 = gr.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
 negative_prompt_input_step_1 = gr.Textbox(lines=2, placeholder="Enter what you don't want here", label="Negative prompt")
 generated_image_step_1 = gr.Gallery(elem_id="generated_images", label="Generated Image")
 
-prompt_input_step_2 = gr.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
-negative_prompt_input_step_2 = gr.Textbox(lines=2, placeholder="Enter what you don't want here", label="Negative prompt")
 generated_image_step_2 = gr.Gallery(elem_id="generated_images", label="Generated Image")
 
-prompt_input_step_3 = gr.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
-negative_prompt_input_step_3 = gr.Textbox(lines=2, placeholder="Enter what you don't want here", label="Negative prompt")
+image_input_step_3 =  gr.Image(sources="upload", elem_id="input_image", label="Input Image")
 generated_image_step_3 = gr.Gallery(elem_id="generated_images", label="Generated Image")
 
-prompt_input_step_4 = gr.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
-negative_prompt_input_step_4 = gr.Textbox(lines=2, placeholder="Enter what you don't want here", label="Negative prompt")
+adetailer_prompt_input_step_4 = gr.components.Textbox(lines=2, placeholder="Enter the description of the face here", label="Prompt for the face")
 generated_image_step_4 = gr.Gallery(elem_id="generated_images", label="Generated Image")
 
 # Create the ui
@@ -444,66 +414,53 @@ step_1 = gr.Interface(
     fn = step_1_txt2img_controlnet,
     inputs = [
         prompt_input_step_1,
-        negative_prompt_input_step_1,
+        negative_prompt_input_step_1
     ],
     outputs = [
-        generated_image_step_1,
+        generated_image_step_1
     ],
-    title ="Stable Diffusion Artist UI Pipe",
-    description ="The current use of this UI is to do a simple text to image where 4 images are generated from the Stable Diffusion API, enter the prompt input and press the submit button",
+    title ="First Images Generation",
+    description ="Enter a short and simple prompt to describe the character you want and press submit. 4 images are generated with the parameters set for a fast image generation. If necessary, adjust the prompt and generate again, you should only add a few words at a time then generate again to see how it affects the result. When happy with the result, select 1 of the 4 images and press select image.",
     allow_flagging = "never"
 )
-# Create the ui
 step_2 = gr.Interface(
     fn = step_2_img2img,
-    inputs = [
-        prompt_input_step_2,
-        negative_prompt_input_step_2,
-        
-    ],
+    inputs = [],
     outputs = [
-        generated_image_step_2,
+        generated_image_step_2
     ],
-    title ="Stable Diffusion Artist UI Pipe",
-    description ="The current use of this UI is to do a simple text to image where 4 images are generated from the Stable Diffusion API, enter the prompt input and press the submit button",
+    title ="Upscaling and variation",
+    description ="Press generate to upscale the chosen image from step 1. Select 1 out of the 2 generated images, upload the image to Photoshop, and sketch a detail on the character (could be a hat, goggles, a different haircut, etc.). Then go to step 3.",
     allow_flagging = "never"
 )
-# Create the ui
 step_3 = gr.Interface(
     fn = step_3_img2img,
     inputs = [
-        prompt_input_step_3,
-        negative_prompt_input_step_3,
-        
+        image_input_step_3
     ],
     outputs = [
-        generated_image_step_3,
+        generated_image_step_3
     ],
-    title ="Stable Diffusion Artist UI Pipe",
-    description ="The current use of this UI is to do a simple text to image where 4 images are generated from the Stable Diffusion API, enter the prompt input and press the submit button",
+    title ="Photoshop sketch",
+    description ="Upload the Photoshop image back here and press generate. It will render you sketch in the same style as the character. Select 1 out of the 2 images, then press select image.",
     allow_flagging = "never"
 )
-
-# Create the ui
 step_4 = gr.Interface(
     fn = step_4_img2img,
     inputs = [
-        prompt_input_step_4,
-        negative_prompt_input_step_4,
-        
+        adetailer_prompt_input_step_4
     ],
     outputs = [
-        generated_image_step_4,
+        generated_image_step_4
     ],
-    title ="Stable Diffusion Artist UI Pipe",
-    description ="The current use of this UI is to do a simple text to image where 4 images are generated from the Stable Diffusion API, enter the prompt input and press the submit button",
+    title ="Final upscale",
+    description ="The last step will upscale and better define the face of your character. You can enter a prompt specific to the face of the character if you want to better describe it if necessary. Then press generate.",
     allow_flagging = "never"
 )
-
-
-ui = gr.TabbedInterface([step_1,step_2,step_3,step_4], ["Step 1","step_2","Step 3","step_4"])
+ui = gr.TabbedInterface(
+    [step_1,step_2,step_3,step_4], 
+    ["Step 1","Step 2","Step 3","Step 4"],
+    title="Stable Diffusion Artist UI Pipeline",
+    )
 if __name__ == "__main__":
     ui.launch()
-
-
-# Create tabs with the interfaces

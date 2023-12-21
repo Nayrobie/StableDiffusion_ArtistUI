@@ -1,4 +1,4 @@
-# Version 2.5
+# Version 2.6
 
 import gradio as gr
 import requests
@@ -418,28 +418,92 @@ def txt2img_test_dynamic_prompt():
     """
 
 # Inputs
-prompt_input = gr.components.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
-negative_prompt_input = gr.components.Textbox(lines=2, placeholder="Enter what you don't want here", label="Negative prompt")
 adetailer_prompt_input = gr.components.Textbox(lines=2, placeholder="Enter the description of the face here", label="Prompt for the face")
 #adetailer_negative_prompt_input = gr.components.Textbox(lines=2, placeholder="Enter what you don't want for the face here", label="Negative prompt for the face")
 # Outputs
-generated_image = gr.Gallery(elem_id="generated_image", label="Generated Image")
+
+# All the input and output
+prompt_input_step_1 = gr.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
+negative_prompt_input_step_1 = gr.Textbox(lines=2, placeholder="Enter what you don't want here", label="Negative prompt")
+generated_image_step_1 = gr.Gallery(elem_id="generated_images", label="Generated Image")
+
+prompt_input_step_2 = gr.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
+negative_prompt_input_step_2 = gr.Textbox(lines=2, placeholder="Enter what you don't want here", label="Negative prompt")
+generated_image_step_2 = gr.Gallery(elem_id="generated_images", label="Generated Image")
+
+prompt_input_step_3 = gr.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
+negative_prompt_input_step_3 = gr.Textbox(lines=2, placeholder="Enter what you don't want here", label="Negative prompt")
+generated_image_step_3 = gr.Gallery(elem_id="generated_images", label="Generated Image")
+
+prompt_input_step_4 = gr.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
+negative_prompt_input_step_4 = gr.Textbox(lines=2, placeholder="Enter what you don't want here", label="Negative prompt")
+generated_image_step_4 = gr.Gallery(elem_id="generated_images", label="Generated Image")
 
 # Create the ui
-ui = gr.Interface(
-    fn = step_4_img2img,
+step_1 = gr.Interface(
+    fn = step_1_txt2img_controlnet,
     inputs = [
-        prompt_input,
-        negative_prompt_input,
-        #adetailer_prompt_input,
-        #adetailer_negative_prompt_input
-        ],
-    outputs = [
-        generated_image,
+        prompt_input_step_1,
+        negative_prompt_input_step_1,
     ],
-    title = "Stable Diffusion Artist UI Pipe",
+    outputs = [
+        generated_image_step_1,
+    ],
+    title ="Stable Diffusion Artist UI Pipe",
+    description ="The current use of this UI is to do a simple text to image where 4 images are generated from the Stable Diffusion API, enter the prompt input and press the submit button",
+    allow_flagging = "never"
+)
+# Create the ui
+step_2 = gr.Interface(
+    fn = step_2_img2img,
+    inputs = [
+        prompt_input_step_2,
+        negative_prompt_input_step_2,
+        
+    ],
+    outputs = [
+        generated_image_step_2,
+    ],
+    title ="Stable Diffusion Artist UI Pipe",
+    description ="The current use of this UI is to do a simple text to image where 4 images are generated from the Stable Diffusion API, enter the prompt input and press the submit button",
+    allow_flagging = "never"
+)
+# Create the ui
+step_3 = gr.Interface(
+    fn = step_3_img2img,
+    inputs = [
+        prompt_input_step_3,
+        negative_prompt_input_step_3,
+        
+    ],
+    outputs = [
+        generated_image_step_3,
+    ],
+    title ="Stable Diffusion Artist UI Pipe",
+    description ="The current use of this UI is to do a simple text to image where 4 images are generated from the Stable Diffusion API, enter the prompt input and press the submit button",
     allow_flagging = "never"
 )
 
-# Run the ui
-ui.launch()
+# Create the ui
+step_4 = gr.Interface(
+    fn = step_4_img2img,
+    inputs = [
+        prompt_input_step_4,
+        negative_prompt_input_step_4,
+        
+    ],
+    outputs = [
+        generated_image_step_4,
+    ],
+    title ="Stable Diffusion Artist UI Pipe",
+    description ="The current use of this UI is to do a simple text to image where 4 images are generated from the Stable Diffusion API, enter the prompt input and press the submit button",
+    allow_flagging = "never"
+)
+
+
+ui = gr.TabbedInterface([step_1,step_2,step_3,step_4], ["Step 1","step_2","Step 3","step_4"])
+if __name__ == "__main__":
+    ui.launch()
+
+
+# Create tabs with the interfaces

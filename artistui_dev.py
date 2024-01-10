@@ -1,4 +1,4 @@
-# Version 2.7
+# Version 2.8
 
 import gradio as gr
 import requests
@@ -31,7 +31,7 @@ def encode_image_to_base64(image_data):
     encoded_string = base64.b64encode(buffer)
     return encoded_string.decode('utf-8')
 
-def step_1_txt2img_controlnet(prompt_input, negative_prompt_input):
+def step_1_txt2img_controlnet(prompt_input):
     """
     The 1st step of the character workflow generates 4 images.
     The parameters are set for fast generation but low quality.
@@ -43,7 +43,7 @@ def step_1_txt2img_controlnet(prompt_input, negative_prompt_input):
     inputs_pp = [chara_sheet, prompt_input, default_pp]
     combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
     # Negative prompt
-    inputs_np = [negative_prompt_input, default_np]
+    inputs_np = [default_np]
     combined_np = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_np]))
     
     # Fetch the openpose reference image from the working directory
@@ -54,7 +54,7 @@ def step_1_txt2img_controlnet(prompt_input, negative_prompt_input):
     controlnet_payload = {
         "prompt": combined_pp,
         "negative_prompt": combined_np,
-        "batch_size": 4,
+        "batch_size": 1,
         "seed": -1,
         "steps": 20,
         "width": 1024,
@@ -109,15 +109,22 @@ def step_1_txt2img_controlnet(prompt_input, negative_prompt_input):
     
     return image_paths
 
-def step_2_img2img():
+def step_2_img2img(selected_image_data):
     """
     2nd step is to upscale the image chosen from the 1st step.
     """
 
-    # Fetch the openpose reference image from the working directory
-    image_path = os.path.join(os.getcwd(), "image_input\step_1.jpg")
-    image_input = cv2.imread(image_path)
+    if selected_image_data is not None:
+        # Decode the selected image data
+        image_bytes = base64.b64decode(selected_image_data["image"])
+
+    image_input = cv2.imread(image_bytes)
     image_data = encode_image_to_base64(image_input)
+
+    # Fetch the step 1 image from the working directory
+    #image_path = os.path.join(os.getcwd(), "image_input\step_1.jpg")
+    #image_input = cv2.imread(image_path)
+    #image_data = encode_image_to_base64(image_input)
     
     img2img_payload = {
         "init_images": [image_data],
@@ -395,72 +402,69 @@ def txt2img_test_dynamic_prompt():
         }
     }
     """
-
-# All the input and output
-prompt_input_step_1 = gr.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
-negative_prompt_input_step_1 = gr.Textbox(lines=2, placeholder="Enter what you don't want here", label="Negative prompt")
-generated_image_step_1 = gr.Gallery(elem_id="generated_images", label="Generated Image")
-
-generated_image_step_2 = gr.Gallery(elem_id="generated_images", label="Generated Image")
-
+   
+# All the input and output (useless with the blocks)
 image_input_step_3 =  gr.Image(sources="upload", elem_id="input_image", label="Input Image")
-generated_image_step_3 = gr.Gallery(elem_id="generated_images", label="Generated Image")
-
+generated_image_step_3 = gr.Gallery(elem_id="generated_images", label="Generated Image", show_download_button=False)
 adetailer_prompt_input_step_4 = gr.components.Textbox(lines=2, placeholder="Enter the description of the face here", label="Prompt for the face")
-generated_image_step_4 = gr.Gallery(elem_id="generated_images", label="Generated Image")
+generated_image_step_4 = gr.Gallery(elem_id="generated_images", label="Generated Image", show_download_button=False)
 
-# Create the ui
-step_1 = gr.Interface(
-    fn = step_1_txt2img_controlnet,
-    inputs = [
-        prompt_input_step_1,
-        negative_prompt_input_step_1
-    ],
-    outputs = [
-        generated_image_step_1
-    ],
-    title ="First Images Generation",
-    description ="Enter a short and simple prompt to describe the character you want and press submit. 4 images are generated with the parameters set for a fast image generation. If necessary, adjust the prompt and generate again, you should only add a few words at a time then generate again to see how it affects the result. When happy with the result, select 1 of the 4 images and press select image.",
-    allow_flagging = "never"
-)
-step_2 = gr.Interface(
-    fn = step_2_img2img,
-    inputs = [],
-    outputs = [
-        generated_image_step_2
-    ],
-    title ="Upscaling and variation",
-    description ="Press generate to upscale the chosen image from step 1. Select 1 out of the 2 generated images, upload the image to Photoshop, and sketch a detail on the character (could be a hat, goggles, a different haircut, etc.). Then go to step 3.",
-    allow_flagging = "never"
-)
-step_3 = gr.Interface(
-    fn = step_3_img2img,
-    inputs = [
-        image_input_step_3
-    ],
-    outputs = [
-        generated_image_step_3
-    ],
-    title ="Photoshop sketch",
-    description ="Upload the Photoshop image back here and press generate. It will render you sketch in the same style as the character. Select 1 out of the 2 images, then press select image.",
-    allow_flagging = "never"
-)
-step_4 = gr.Interface(
-    fn = step_4_img2img,
-    inputs = [
-        adetailer_prompt_input_step_4
-    ],
-    outputs = [
-        generated_image_step_4
-    ],
-    title ="Final upscale",
-    description ="The last step will upscale and better define the face of your character. You can enter a prompt specific to the face of the character if you want to better describe it if necessary. Then press generate.",
-    allow_flagging = "never"
-)
-ui = gr.TabbedInterface(
-    [step_1,step_2,step_3,step_4], 
-    ["Step 1","Step 2","Step 3","Step 4"],
-    title="Stable Diffusion Artist UI Pipeline",
-    )
+selected_image_data = None # Global variable
+
+with gr.Blocks() as ui:
+    gr.Markdown("Flip text or image files using this demo.")
+
+    with gr.Tab("Step 1"):
+        selected = gr.Number(show_label=False) # to hide
+
+        prompt_input_step_1 = gr.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
+        negative_prompt_input_step_1 = gr.Textbox(lines=2, placeholder="Enter what you don't want here", label="Negative prompt")
+        
+        generated_image_step_1 = gr.Gallery(elem_id="generated_images", label="Generated Image", show_download_button=False)
+        
+        generate_button = gr.Button("Generate")
+        send_to_button = gr.Button("Send to next step")
+   
+    with gr.Tab("Step 2"):
+        generated_image_step_2 = gr.Gallery(elem_id="generated_images", label="Generated Image", show_download_button=False)
+
+        #generate_button = gr.Button("Generate")
+        #send_to_button = gr.Button("Send to next step")
+    
+    generate_button.click(step_1_txt2img_controlnet, 
+                          inputs=prompt_input_step_1,
+                          outputs=generated_image_step_1)
+        
+    def get_select_index(evt: gr.SelectData):
+        return evt.index
+
+    def send_to_step_2(index):
+        # Save the selected image index
+        index = int(index)
+        print(index) # For debug
+
+        # Save the image
+        global selected_image_data
+        selected_image_data = generated_image_step_1[index] # gradio aime pas les listes pour appeler l'index
+
+        # Decode the base64 image data
+        #image_bytes = base64.b64decode(selected_image_data["image"])
+        # Define the output dir
+        #output_directory = os.path.join(os.getcwd(), "image_output")
+        #os.makedirs(output_directory, exist_ok=True)  # Ensure the directory exists
+        # Save the image to the output dir
+        #output_image_path = os.path.join(output_directory, f"selected_image_{index}.jpg")
+        #with open(output_image_path, "wb") as image_file:
+        #    image_file.write(image_bytes)
+        
+        # Load the image in next step
+
+        return selected_image_data
+    
+    generated_image_step_1.select(get_select_index, None, selected)
+
+    send_to_button.click(send_to_step_2, selected)
+
+# Run the ArtistUI    
 if __name__ == "__main__":
     ui.launch()

@@ -1,4 +1,4 @@
-# Version 2.8
+# Version 2.8.5
 
 import gradio as gr
 import requests
@@ -7,6 +7,7 @@ import base64
 import json
 import cv2
 from PIL.ExifTags import TAGS
+import numpy as np
 
 # genai_env\Scripts\activate
 # url: EKO 1 = "http://10.2.5.35:7860" / EKO 2 = "http://10.2.4.15:7860"
@@ -23,12 +24,35 @@ default_pp = "highly detailed, masterpiece, 8k, uhd"
 default_np = "watermark, (text:1.2), naked, nsfw, deformed, bad anatomy, disfigured, mutated, fused fingers, extra fingers"
 chara_sheet = "Character sheet concept art, full body length, (plain background:1.2)"
 
-selected_image_data = None # Global variable
-
 def encode_image_to_base64(image_data):
     _, buffer = cv2.imencode('.png', image_data)
     encoded_string = base64.b64encode(buffer)
     return encoded_string.decode('utf-8')
+
+def get_select_index(evt: gr.SelectData):
+    # Save selected image index
+    index = int(evt.index)
+    return index
+
+def save_image_to_dir(step_number, index, image, r):
+    # Define the output dir
+    output_directory = os.path.join(os.getcwd(), "image_output")
+    os.makedirs(output_directory, exist_ok=True)  # Ensure the directory exists
+    
+    # Save the image to the output dir with the step number in the name
+    image_path = os.path.join(output_directory, f"output_image_step_{step_number}_{index}.jpg")
+    with open(image_path, "wb") as img_file:
+        img_file.write(base64.b64decode(image))
+
+    # Extract and print infotexts
+    if 'info' in r:
+        jsoninfo = json.loads(r['info'])
+        print("________________Info Text________________")
+        print(f"Positive prompt: {jsoninfo['infotexts'][0]}")
+    else:
+        print("Info key not found in response:", r)
+
+    return image_path
 
 def step_1_txt2img_controlnet(prompt_input):
     """
@@ -53,7 +77,7 @@ def step_1_txt2img_controlnet(prompt_input):
     controlnet_payload = {
         "prompt": combined_pp,
         "negative_prompt": combined_np,
-        "batch_size": 1,
+        "batch_size": 2,
         "seed": -1,
         "steps": 20,
         "width": 1024,
@@ -89,41 +113,36 @@ def step_1_txt2img_controlnet(prompt_input):
     txt2img_controlnet_response = requests.post(url=f'{url}/sdapi/v1/txt2img', json=controlnet_payload)
     r = txt2img_controlnet_response.json()
 
-    # Extract and save images locally
-    output_folder = "image_output"
+    # Save the image using the save_image_to_dir function with step number 1
     image_paths = []
     for idx, image in enumerate(r.get("images", [])):
-        image_path = os.path.join(output_folder, f"generated_image_{idx}.jpg")
-        with open(image_path, "wb") as img_file:
-            img_file.write(base64.b64decode(image))
+        image_path = save_image_to_dir(1, idx, image, r)
         image_paths.append(image_path)
-        
-    # Extract and print infotexts
-    if 'info' in r:
-        jsoninfo = json.loads(r['info'])
-        print("________________Info Text________________")
-        print(f"Positive prompt: {jsoninfo['infotexts'][0]}")
-    else:
-        print("Info key not found in response:", r)
     
     return image_paths
 
-def step_2_img2img(selected_image_data):
+def step_2_img2img(selected_index, generated_images_step_1):
     """
     2nd step is to upscale the image chosen from the 1st step.
     """
 
-    if selected_image_data is not None:
-        # Decode the selected image data
-        image_bytes = base64.b64decode(selected_image_data["image"])
-
-    image_input = cv2.imread(image_bytes)
-    image_data = encode_image_to_base64(image_input)
-
-    # Fetch the step 1 image from the working directory
-    #image_path = os.path.join(os.getcwd(), "image_input\step_1.jpg")
-    #image_input = cv2.imread(image_path)
-    #image_data = encode_image_to_base64(image_input)
+    if generated_images_step_1 and selected_index is not None:
+        # Construct the file path for the selected image based on the index
+        image_path = os.path.join(os.getcwd(), f"image_output\\output_image_step_1_{int(selected_index)}.jpg")
+        # Check if the file exists
+        if os.path.exists(image_path):
+            # Read the image
+            image_input = cv2.imread(image_path)
+            # Encode the image to base64
+            image_data = encode_image_to_base64(image_input)
+        else:
+            print(f"Error: Image file not found at {image_path}")
+            return []        
+        
+        # Read the image
+        image_input = cv2.imread(image_path)
+        # Encode the image to base64
+        image_data = encode_image_to_base64(image_input)
     
     img2img_payload = {
         "init_images": [image_data],
@@ -151,72 +170,49 @@ def step_2_img2img(selected_image_data):
     img2img_response = requests.post(url=f'{url}/sdapi/v1/img2img', json=img2img_payload)
     r = img2img_response.json()
 
-    # Extract and save images locally
-    output_folder = "image_output"
+    # Save the image using the save_image_to_dir function with step number 2
     image_paths = []
     for idx, image in enumerate(r.get("images", [])):
-        image_path = os.path.join(output_folder, f"generated_image_{idx}.jpg")
-        with open(image_path, "wb") as img_file:
-            img_file.write(base64.b64decode(image))
+        image_path = save_image_to_dir(2, idx, image, r)
         image_paths.append(image_path)
-        
-    # Extract and print infotexts
-    if 'info' in r:
-        jsoninfo = json.loads(r['info'])
-        print("________________Info Text________________")
-        print(f"Positive prompt: {jsoninfo['infotexts'][0]}")
-    else:
-        print("Info key not found in response:", r)
-    
+
     return image_paths
 
-def get_select_index(evt: gr.SelectData):
-    return evt.index
-
-def send_to_step_2(index):
-    global selected_image_data
-    selected_image_data = generated_image_step_1[index]
-    return selected_image_data
-
 with gr.Blocks() as ui:
-    gr.Markdown("Gradio description text.")
+    gr.Markdown("ArtistUI")
 
     # Step 1
     with gr.Tab("Step 1"):
-        selected = gr.Number(show_label=False) # to hide
+        selected = gr.Number(label="Index number") # Debug
         # Input
         prompt_input_step_1 = gr.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
         negative_prompt_input_step_1 = gr.Textbox(lines=2, placeholder="Enter what you don't want here", label="Negative prompt")
         # Output    
-        generated_image_step_1 = gr.Gallery(elem_id="generated_image_step_1", label="Generated Image", show_download_button=False)
+        generated_image_step_1 = gr.Gallery(elem_id="generated_image_step_1", label="Generated Image")
         # Button
         generate_button_step_1 = gr.Button("Generate")
         send_to_step_2_button = gr.Button("Send to next step")
 
-    # UI callbacks for step 1
-    generate_button_step_1.click(step_1_txt2img_controlnet, inputs=prompt_input_step_1, outputs=generated_image_step_1)
-    generated_image_step_1.select(get_select_index, None, selected)
-    send_to_step_2_button.click(send_to_step_2, selected)   
+    # Button to initate step 1
+    generate_button_step_1.click(step_1_txt2img_controlnet,
+                                 inputs=prompt_input_step_1,
+                                 outputs=generated_image_step_1)
 
+    
+    # Update the selected variable in response to gallery selection
+    generated_image_step_1.select(get_select_index, None, selected)
+    
     # Step 2
     with gr.Tab("Step 2"):
         # Output  
-        generated_image_step_2 = gr.Gallery(elem_id="generated_image_step_2", label="Generated Image", show_download_button=False)
+        generated_image_step_2 = gr.Gallery(elem_id="generated_image_step_2", label="Generated Image") #, show_download_button=False)
         # Button
         generate_button_step_2 = gr.Button("Generate")
-
-    # UI callbacks for step 2
-    def step_2_ui_callback():
-        if selected_image_data is not None:
-            # Call the function for Step 2 image processing
-            output_images = step_2_img2img(selected_image_data)
-            # Assuming generated_image_step_2 is an Image component
-            generated_image_step_2.image(output_images[0])  # Display the processed image in Step 2
-    
-    # Assuming generate_button_step_2 is the button to trigger Step 2 processing
-    generate_button_step_2.click(step_2_ui_callback)
-
-
+        
+    # Button to initiate step 2
+    send_to_step_2_button.click(step_2_img2img,
+                            inputs=[selected, generated_image_step_1],
+                            outputs=generated_image_step_2)
 # Run the ArtistUI    
 if __name__ == "__main__":
     ui.launch()

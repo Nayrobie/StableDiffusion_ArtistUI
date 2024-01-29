@@ -9,11 +9,8 @@ import cv2
 from PIL.ExifTags import TAGS
 
 # genai_env\Scripts\activate
-# A1111 API
-# url: EKO 1 = "http://10.2.5.35:7860/?__theme=dark" / EKO 2 = "http://10.2.4.15:7860/?__theme=dark"
+# url: EKO 1 = "http://10.2.5.35:7860" / EKO 2 = "http://10.2.4.15:7860"
 url = "http://10.2.4.15:7860"
-# Doc http://10.2.4.15:7860/docs#/default
-# Gradio UI: http://127.0.0.1:7860/?__theme=dark
 
 # Find the directory where the script is running
 cwd = os.getcwd()
@@ -25,6 +22,8 @@ model_checkpoint = "dreamshaper_8.safetensors [879db523c3]"
 default_pp = "highly detailed, masterpiece, 8k, uhd"
 default_np = "watermark, (text:1.2), naked, nsfw, deformed, bad anatomy, disfigured, mutated, fused fingers, extra fingers"
 chara_sheet = "Character sheet concept art, full body length, (plain background:1.2)"
+
+selected_image_data = None # Global variable
 
 def encode_image_to_base64(image_data):
     _, buffer = cv2.imencode('.png', image_data)
@@ -171,299 +170,52 @@ def step_2_img2img(selected_image_data):
     
     return image_paths
 
-# Step 3 is 50% in photoshop and 50% inpainting the sketch area (don't know how to automate the inpainting part)
-def step_3_img2img(image_input_step_3):
-    """
-    3rd step is like 2nd step but without the upscale. It's to generate the image again and render the sketch from Photoshop (from 3rd step)
-    """
+def get_select_index(evt: gr.SelectData):
+    return evt.index
 
-    # Upload the photoshop sketch from the UI
-    image_input = cv2.imread(image_input_step_3)
-    image_data = encode_image_to_base64(image_input)
-    
-    img2img_payload = {
-        "init_images": [image_data],
-        "denoising_strength":0.45,
-        "prompt": "",
-        "negative_prompt": "",
-        "batch_size": 2,
-        "seed": -1,
-        "steps": 30,
-        "width": 1433,
-        "height": 660,
-        "sampler_name": "DPM++ 2M Karras",
-        "save_images": True
-    }
-
-    # For the script to override the model chosen on A1111    
-    override_settings = {
-        "sd_model_checkpoint": model_checkpoint
-    }
-    override_payload = {
-        "override_settings": override_settings
-    }
-    img2img_payload.update(override_payload)
-    
-    img2img_response = requests.post(url=f'{url}/sdapi/v1/img2img', json=img2img_payload)
-    r = img2img_response.json()
-
-    # Extract and save images locally
-    output_folder = "image_output"
-    image_paths = []
-    for idx, image in enumerate(r.get("images", [])):
-        image_path = os.path.join(output_folder, f"generated_image_{idx}.jpg")
-        with open(image_path, "wb") as img_file:
-            img_file.write(base64.b64decode(image))
-        image_paths.append(image_path)
-        
-    # Extract and print infotexts
-    if 'info' in r:
-        jsoninfo = json.loads(r['info'])
-        print("________________Info Text________________")
-        print(f"Positive prompt: {jsoninfo['infotexts'][0]}")
-    else:
-        print("Info key not found in response:", r)
-    
-    return image_paths
-
-def step_4_img2img(adetailer_prompt_input):
-    """
-    This is the final upscale part, with the use of the aDetailer extension to regerate the face of the character.
-    """
-
-    # Fetch the openpose reference image from the working directory
-    image_path = os.path.join(os.getcwd(), "image_input\step_3-2.jpg")
-    image_input = cv2.imread(image_path)
-    image_data = encode_image_to_base64(image_input)
-     
-    img2img_payload = {
-        "init_images": [image_data],
-        "denoising_strength":0.3,
-        "prompt": "",
-        "negative_prompt": "",
-        "batch_size": 1,
-        "seed": -1,
-        "steps": 30,
-        "width": 1718,
-        "height": 787,
-        "sampler_name": "DPM++ 2M Karras",
-        "save_images": True,
-        "alwayson_scripts": {
-            "ADetailer": {
-                "args": [
-                    {
-                        "0": True,
-                        "1": False,
-                        "2": {
-                        "ad_cfg_scale" : 7,
-                        "ad_checkpoint" : "Use same checkpoint",
-                        "ad_clip_skip" : 1,
-                        "ad_confidence" : 0.3,
-                        "ad_controlnet_guidance_end" : 1,
-                        "ad_controlnet_guidance_start" : 0,
-                        "ad_controlnet_model" : "None",
-                        "ad_controlnet_module" : "None",
-                        "ad_controlnet_weight" : 1,
-                        "ad_denoising_strength" : 0.4,
-                        "ad_dilate_erode" : 4,
-                        "ad_inpaint_height" : 512,
-                        "ad_inpaint_only_masked" : True,
-                        "ad_inpaint_only_masked_padding" : 32,
-                        "ad_inpaint_width" : 512,
-                        "ad_mask_blur" : 4,
-                        "ad_mask_k_largest" : 0,
-                        "ad_mask_max_ratio" : 1,
-                        "ad_mask_merge_invert" : "None",
-                        "ad_mask_min_ratio" : 0,
-                        "ad_model" : "face_yolov8n.pt",
-                        "ad_negative_prompt" : "",
-                        "ad_noise_multiplier" : 1,
-                        "ad_prompt" : adetailer_prompt_input,
-                        "ad_restore_face" : False,
-                        "ad_sampler" : "DPM++ 2M Karras",
-                        "ad_steps" : 28,
-                        "ad_use_cfg_scale" : False,
-                        "ad_use_checkpoint" : False,
-                        "ad_use_clip_skip" : False,
-                        "ad_use_inpaint_width_height" : False,
-                        "ad_use_noise_multiplier" : False,
-                        "ad_use_sampler" : False,
-                        "ad_use_steps" : False,
-                        "ad_use_vae" : False,
-                        "ad_vae" : "Use same VAE",
-                        "ad_x_offset" : 0,
-                        "ad_y_offset" : 0,
-                        "is_api" : [ ]
-                        },
-                        "3" : {
-                        "ad_cfg_scale" : 7,
-                        "ad_checkpoint" : "Use same checkpoint",
-                        "ad_clip_skip" : 1,
-                        "ad_confidence" : 0.3,
-                        "ad_controlnet_guidance_end" : 1,
-                        "ad_controlnet_guidance_start" : 0,
-                        "ad_controlnet_model" : "None",
-                        "ad_controlnet_module" : "None",
-                        "ad_controlnet_weight" : 1,
-                        "ad_denoising_strength" : 0.4,
-                        "ad_dilate_erode" : 4,
-                        "ad_inpaint_height" : 512,
-                        "ad_inpaint_only_masked" : True,
-                        "ad_inpaint_only_masked_padding" : 32,
-                        "ad_inpaint_width" : 512,
-                        "ad_mask_blur" : 4,
-                        "ad_mask_k_largest" : 0,
-                        "ad_mask_max_ratio" : 1,
-                        "ad_mask_merge_invert" : "None",
-                        "ad_mask_min_ratio" : 0,
-                        "ad_model" : "None",
-                        "ad_negative_prompt" : "",
-                        "ad_noise_multiplier" : 1,
-                        "ad_prompt" : "",
-                        "ad_restore_face" : False,
-                        "ad_sampler" : "DPM++ 2M Karras",
-                        "ad_steps" : 28,
-                        "ad_use_cfg_scale" : False,
-                        "ad_use_checkpoint" : False,
-                        "ad_use_clip_skip" : False,
-                        "ad_use_inpaint_width_height" : False,
-                        "ad_use_noise_multiplier" : False,
-                        "ad_use_sampler" : False,
-                        "ad_use_steps" : False,
-                        "ad_use_vae" : False,
-                        "ad_vae" : "Use same VAE",
-                        "ad_x_offset" : 0,
-                        "ad_y_offset" : 0,
-                        "is_api" : [ ]
-                        }
-                     }    
-                ]
-            }
-        }
-    }
-
-    # For the script to override the model chosen on A1111    
-    override_settings = {
-        "sd_model_checkpoint": model_checkpoint
-    }
-    override_payload = {
-        "override_settings": override_settings
-    }
-    img2img_payload.update(override_payload)
-    
-    img2img_response = requests.post(url=f'{url}/sdapi/v1/img2img', json=img2img_payload)
-    r = img2img_response.json()
-
-    # Extract and save images locally
-    output_folder = "image_output"
-    image_paths = []
-    for idx, image in enumerate(r.get("images", [])):
-        image_path = os.path.join(output_folder, f"generated_image_{idx}.jpg")
-        with open(image_path, "wb") as img_file:
-            img_file.write(base64.b64decode(image))
-        image_paths.append(image_path)
-        
-    # Extract and print infotexts
-    if 'info' in r:
-        jsoninfo = json.loads(r['info'])
-        print("________________Info Text________________")
-        print(f"Positive prompt: {jsoninfo['infotexts'][0]}")
-    else:
-        print("Info key not found in response:", r)
-    
-    return image_paths
-
-# Not needed now:
-def txt2img_test_dynamic_prompt():
-    """
-        "alwayson_scripts": {
-            "Dynamic Prompts v2.17.1": {
-                "args": {
-                    "0": True, # Dynamic Prompts enabled
-                    "1": False, # Combinatorial generation
-                    "2": 1, # Combinatorial batches
-                    "3": False, # Magic prompt
-                    "4": False, # I'm feelinf lucky
-                    "5": False, # Attention Grabber
-                    "6": 1.1, # Min attention
-                    "7": 1.5, # Max attention
-                    "8": 100, # Max magic prompt length
-                    "9": 0.7, # Magic prompt creativity
-                    "10": False, # Fixed seed
-                    "11": False, # Unlink seed from prompt
-                    "12": True, # Don't apply to negative prompts
-                    "13": False, # Enable Jinja2 templates
-                    "14": False, # Don't generate images
-                    "15": 0, # Max generations (0 = all combinations - the batch count value is ignored)
-                    "16": "Gustavosta/MagicPrompt-Stable-Diffusion", # Magic prompt model
-                    "17": "" # Magic prompt blocklist regex
-                }
-            }
-        }
-    }
-    """
-   
-# All the input and output (useless with the blocks)
-image_input_step_3 =  gr.Image(sources="upload", elem_id="input_image", label="Input Image")
-generated_image_step_3 = gr.Gallery(elem_id="generated_images", label="Generated Image", show_download_button=False)
-adetailer_prompt_input_step_4 = gr.components.Textbox(lines=2, placeholder="Enter the description of the face here", label="Prompt for the face")
-generated_image_step_4 = gr.Gallery(elem_id="generated_images", label="Generated Image", show_download_button=False)
-
-selected_image_data = None # Global variable
+def send_to_step_2(index):
+    global selected_image_data
+    selected_image_data = generated_image_step_1[index]
+    return selected_image_data
 
 with gr.Blocks() as ui:
-    gr.Markdown("Flip text or image files using this demo.")
+    gr.Markdown("Gradio description text.")
 
+    # Step 1
     with gr.Tab("Step 1"):
         selected = gr.Number(show_label=False) # to hide
-
+        # Input
         prompt_input_step_1 = gr.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
         negative_prompt_input_step_1 = gr.Textbox(lines=2, placeholder="Enter what you don't want here", label="Negative prompt")
-        
-        generated_image_step_1 = gr.Gallery(elem_id="generated_images", label="Generated Image", show_download_button=False)
-        
-        generate_button = gr.Button("Generate")
-        send_to_button = gr.Button("Send to next step")
-   
-    with gr.Tab("Step 2"):
-        generated_image_step_2 = gr.Gallery(elem_id="generated_images", label="Generated Image", show_download_button=False)
+        # Output    
+        generated_image_step_1 = gr.Gallery(elem_id="generated_image_step_1", label="Generated Image", show_download_button=False)
+        # Button
+        generate_button_step_1 = gr.Button("Generate")
+        send_to_step_2_button = gr.Button("Send to next step")
 
-        #generate_button = gr.Button("Generate")
-        #send_to_button = gr.Button("Send to next step")
-    
-    generate_button.click(step_1_txt2img_controlnet, 
-                          inputs=prompt_input_step_1,
-                          outputs=generated_image_step_1)
-        
-    def get_select_index(evt: gr.SelectData):
-        return evt.index
-
-    def send_to_step_2(index):
-        # Save the selected image index
-        index = int(index)
-        print(index) # For debug
-
-        # Save the image
-        global selected_image_data
-        selected_image_data = generated_image_step_1[index] # gradio aime pas les listes pour appeler l'index
-
-        # Decode the base64 image data
-        #image_bytes = base64.b64decode(selected_image_data["image"])
-        # Define the output dir
-        #output_directory = os.path.join(os.getcwd(), "image_output")
-        #os.makedirs(output_directory, exist_ok=True)  # Ensure the directory exists
-        # Save the image to the output dir
-        #output_image_path = os.path.join(output_directory, f"selected_image_{index}.jpg")
-        #with open(output_image_path, "wb") as image_file:
-        #    image_file.write(image_bytes)
-        
-        # Load the image in next step
-
-        return selected_image_data
-    
+    # UI callbacks for step 1
+    generate_button_step_1.click(step_1_txt2img_controlnet, inputs=prompt_input_step_1, outputs=generated_image_step_1)
     generated_image_step_1.select(get_select_index, None, selected)
+    send_to_step_2_button.click(send_to_step_2, selected)   
 
-    send_to_button.click(send_to_step_2, selected)
+    # Step 2
+    with gr.Tab("Step 2"):
+        # Output  
+        generated_image_step_2 = gr.Gallery(elem_id="generated_image_step_2", label="Generated Image", show_download_button=False)
+        # Button
+        generate_button_step_2 = gr.Button("Generate")
+
+    # UI callbacks for step 2
+    def step_2_ui_callback():
+        if selected_image_data is not None:
+            # Call the function for Step 2 image processing
+            output_images = step_2_img2img(selected_image_data)
+            # Assuming generated_image_step_2 is an Image component
+            generated_image_step_2.image(output_images[0])  # Display the processed image in Step 2
+    
+    # Assuming generate_button_step_2 is the button to trigger Step 2 processing
+    generate_button_step_2.click(step_2_ui_callback)
+
 
 # Run the ArtistUI    
 if __name__ == "__main__":

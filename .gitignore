@@ -3,3 +3,6 @@ image_output/
 image_input/
 flagged/
 
+artistui_dev_2.7.py
+test.py
+interrogator.py

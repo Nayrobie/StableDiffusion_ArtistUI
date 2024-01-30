@@ -1,4 +1,4 @@
-# Version 2.8.5
+# Version 2.9
 
 import gradio as gr
 import requests
@@ -7,14 +7,15 @@ import base64
 import json
 import cv2
 from PIL.ExifTags import TAGS
-import numpy as np
+import win32com.client
 
 # genai_env\Scripts\activate
-# url: EKO 1 = "http://10.2.5.35:7860" / EKO 2 = "http://10.2.4.15:7860"
+# url: EKO 2 = "http://10.2.4.15:7860" / EKO 1 = "http://10.2.5.35:7860"
 url = "http://10.2.4.15:7860"
 
-# Find the directory where the script is running
+# Directories
 cwd = os.getcwd()
+output_directory = os.path.join(os.getcwd(), "image_output")
 
 # Model
 model_checkpoint = "dreamshaper_8.safetensors [879db523c3]"
@@ -35,9 +36,8 @@ def get_select_index(evt: gr.SelectData):
     return index
 
 def save_image_to_dir(step_number, index, image, r):
-    # Define the output dir
-    output_directory = os.path.join(os.getcwd(), "image_output")
-    os.makedirs(output_directory, exist_ok=True)  # Ensure the directory exists
+    # Check if output dir exists
+    os.makedirs(output_directory, exist_ok=True)  
     
     # Save the image to the output dir with the step number in the name
     image_path = os.path.join(output_directory, f"output_image_step_{step_number}_{index}.jpg")
@@ -79,7 +79,7 @@ def step_1_txt2img_controlnet(prompt_input):
         "negative_prompt": combined_np,
         "batch_size": 2,
         "seed": -1,
-        "steps": 20,
+        "steps": 10, # 15-20
         "width": 1024,
         "height": 476,
         "sampler_name": "Euler a",
@@ -94,7 +94,8 @@ def step_1_txt2img_controlnet(prompt_input):
                         "weight": 1,
                         "resize_mode": "Scale to Fit (Inner Fit)",
                         "control_mode": "Balanced",
-                        "pixel_perfect": True
+                        "pixel_perfect": True,
+                        "save_detected_map": False,
                     },
                 ]
             }
@@ -151,7 +152,7 @@ def step_2_img2img(selected_index, generated_images_step_1):
         "negative_prompt": "",
         "batch_size": 2,
         "seed": -1,
-        "steps": 30,
+        "steps": 10, #30
         "width": 1433,
         "height": 660,
         "sampler_name": "DPM++ 2M Karras",
@@ -178,12 +179,45 @@ def step_2_img2img(selected_index, generated_images_step_1):
 
     return image_paths
 
+def send_to_photoshop(selected_index_step_2):
+    # Check if selected_index_step_2 is not None and is an integer
+    if selected_index_step_2 is not None:
+        # Convert from float to int (even if the get selected index function retunrs a float...)
+        selected_index_step_2 = int(selected_index_step_2)
+        # Check if output dir exists
+        os.makedirs(output_directory, exist_ok=True)  
+        # Construct the file path for the selected image based on the index
+        image_path = os.path.join(output_directory, f"output_image_step_2_{selected_index_step_2}.jpg")
+        # Check if the file exists
+        if os.path.exists(image_path):
+
+            # Need to co initialize to avoid "CoInitialize has not been called" exception
+            import pythoncom
+            pythoncom.CoInitialize()
+        
+            # Open Photoshop
+            psApp = win32com.client.Dispatch("Photoshop.Application")
+            # Open selected image from Step 2
+            psApp.Open(image_path)
+
+            # Reference the active document
+            doc = psApp.Application.ActiveDocument
+            # Add a new blank layer
+            layer = doc.ArtLayers.Add()
+            layer.name = "PaintOver"
+
+            print(f"Image opened successfully in Photoshop: {image_path}")
+        else:
+            print(f"Error: Image file not found at {image_path}")
+    else:
+        print("Please select an image in Step 2")
+
 with gr.Blocks() as ui:
     gr.Markdown("ArtistUI")
 
-    # Step 1
+    # _________ Step 1 _________
     with gr.Tab("Step 1"):
-        selected = gr.Number(label="Index number") # Debug
+        selected_index_step_1 = gr.Number(label="Index number") # Debug
         # Input
         prompt_input_step_1 = gr.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
         negative_prompt_input_step_1 = gr.Textbox(lines=2, placeholder="Enter what you don't want here", label="Negative prompt")
@@ -197,22 +231,32 @@ with gr.Blocks() as ui:
     generate_button_step_1.click(step_1_txt2img_controlnet,
                                  inputs=prompt_input_step_1,
                                  outputs=generated_image_step_1)
-
     
     # Update the selected variable in response to gallery selection
-    generated_image_step_1.select(get_select_index, None, selected)
+    generated_image_step_1.select(get_select_index, None, selected_index_step_1)
     
-    # Step 2
+    # _________ Step 2 _________
     with gr.Tab("Step 2"):
+        selected_index_step_2 = gr.Number(label="Index number") # Debug
         # Output  
         generated_image_step_2 = gr.Gallery(elem_id="generated_image_step_2", label="Generated Image") #, show_download_button=False)
         # Button
-        generate_button_step_2 = gr.Button("Generate")
+        send_to_photoshop_button = gr.Button("Send to Photoshop")
+
+    # Update the selected variable in response to gallery selection
+    generated_image_step_2.select(get_select_index, None, selected_index_step_2)
         
-    # Button to initiate step 2
+    # Button to initiate step 2 (in Step 1 tab)
     send_to_step_2_button.click(step_2_img2img,
-                            inputs=[selected, generated_image_step_1],
-                            outputs=generated_image_step_2)
+                                inputs=[selected_index_step_1, generated_image_step_1],
+                                outputs=generated_image_step_2)
+    
+    # _________ Step 3 _________
+
+    # Button to send the selected image to Photoshop (in Step 2 tab)
+    send_to_photoshop_button.click(send_to_photoshop,
+                                   inputs=[selected_index_step_2])
+
 # Run the ArtistUI    
 if __name__ == "__main__":
     ui.launch()

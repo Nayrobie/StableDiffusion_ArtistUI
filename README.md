@@ -13,7 +13,8 @@ Developpement versions:
 * v2.6 a first draft that adds a tab for each step of the workflow
 * v2.7 tabs and UI cleanup, photoshop upload to fix
 * v2.8 changes the gradio interface to gradio blocks
-* v2.9 ? adds a send to next step button for step 2 using index numbers for selected image from the gallery
+* v2.8.5 adds a send to next step button for step 2 using index numbers for selected image from the gallery
+* v2.9 send selected image from step 2 to Photoshop and open a new layer for painting
 
 ## Description
 This project involves creating a simplified user interface powered by Stable Diffusion, an AI-based system that generates images. The interface allows users to input prompts, generating multiple images that fulfill the provided criteria and restrictions. It utilizes Gradio for the user interface and integrates with Stable Diffusion APIs to generate and display images based on user inputs. 

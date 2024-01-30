@@ -1,4 +1,4 @@
-# Version 2.9
+# Version 2.9.5
 
 import gradio as gr
 import requests
@@ -8,6 +8,7 @@ import json
 import cv2
 from PIL.ExifTags import TAGS
 import win32com.client
+import pythoncom
 
 # genai_env\Scripts\activate
 # url: EKO 2 = "http://10.2.4.15:7860" / EKO 1 = "http://10.2.5.35:7860"
@@ -54,7 +55,7 @@ def save_image_to_dir(step_number, index, image, r):
 
     return image_path
 
-def step_1_txt2img_controlnet(prompt_input):
+def step_1_txt2img_controlnet(prompt_input_step_1, negative_prompt_input_step_1):
     """
     The 1st step of the character workflow generates 4 images.
     The parameters are set for fast generation but low quality.
@@ -63,10 +64,10 @@ def step_1_txt2img_controlnet(prompt_input):
     """
 
     # Positive prompt
-    inputs_pp = [chara_sheet, prompt_input, default_pp]
+    inputs_pp = [chara_sheet, prompt_input_step_1, default_pp]
     combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
     # Negative prompt
-    inputs_np = [default_np]
+    inputs_np = [negative_prompt_input_step_1, default_np]
     combined_np = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_np]))
     
     # Fetch the openpose reference image from the working directory
@@ -122,14 +123,14 @@ def step_1_txt2img_controlnet(prompt_input):
     
     return image_paths
 
-def step_2_img2img(selected_index, generated_images_step_1):
+def step_2_img2img(selected_index_step_1, generated_images_step_1):
     """
     2nd step is to upscale the image chosen from the 1st step.
     """
 
-    if generated_images_step_1 and selected_index is not None:
+    if generated_images_step_1 and selected_index_step_1 is not None:
         # Construct the file path for the selected image based on the index
-        image_path = os.path.join(os.getcwd(), f"image_output\\output_image_step_1_{int(selected_index)}.jpg")
+        image_path = os.path.join(os.getcwd(), f"image_output\\output_image_step_1_{int(selected_index_step_1)}.jpg")
         # Check if the file exists
         if os.path.exists(image_path):
             # Read the image
@@ -182,21 +183,20 @@ def step_2_img2img(selected_index, generated_images_step_1):
 def send_to_photoshop(selected_index_step_2):
     # Check if selected_index_step_2 is not None and is an integer
     if selected_index_step_2 is not None:
-        # Convert from float to int (even if the get selected index function retunrs a float...)
-        selected_index_step_2 = int(selected_index_step_2)
+
         # Check if output dir exists
         os.makedirs(output_directory, exist_ok=True)  
         # Construct the file path for the selected image based on the index
-        image_path = os.path.join(output_directory, f"output_image_step_2_{selected_index_step_2}.jpg")
+        image_path = os.path.join(output_directory, f"output_image_step_2_{int(selected_index_step_2)}.jpg")
         # Check if the file exists
         if os.path.exists(image_path):
 
             # Need to co initialize to avoid "CoInitialize has not been called" exception
-            import pythoncom
             pythoncom.CoInitialize()
-        
+
             # Open Photoshop
             psApp = win32com.client.Dispatch("Photoshop.Application")
+
             # Open selected image from Step 2
             psApp.Open(image_path)
 
@@ -212,34 +212,84 @@ def send_to_photoshop(selected_index_step_2):
     else:
         print("Please select an image in Step 2")
 
+def step_3_img2img(input_image_step_3, prompt_input_step_3, negative_prompt_input_step_3):
+    """
+    3rd step is like 2nd step but without the upscale. It's to generate the image again and render the sketch from Photoshop (from 3rd step)
+    """
+
+    # Positive prompt
+    inputs_pp = [chara_sheet, prompt_input_step_3]
+    combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
+
+    # Check if an image is uploaded
+    if input_image_step_3 is not None:
+        # Convert the uploaded image to base64
+        image_data = encode_image_to_base64(input_image_step_3) # To fix: coloration is wrong
+    else:
+        print("Error: No image uploaded in Step 3")
+    
+    img2img_payload = {
+        "init_images": [image_data],
+        "denoising_strength":0.5,
+        "prompt": combined_pp,
+        "negative_prompt": negative_prompt_input_step_3,
+        "batch_size": 2,
+        "seed": -1,
+        "steps": 30,
+        "width": 1433,
+        "height": 660,
+        "sampler_name": "DPM++ 2M Karras",
+        "save_images": True
+    }
+
+    # For the script to override the model chosen on A1111    
+    override_settings = {
+        "sd_model_checkpoint": model_checkpoint
+    }
+    override_payload = {
+        "override_settings": override_settings
+    }
+    img2img_payload.update(override_payload)
+    
+    img2img_response = requests.post(url=f'{url}/sdapi/v1/img2img', json=img2img_payload)
+    r = img2img_response.json()
+
+    # Save the image using the save_image_to_dir function with step number 3
+    image_paths = []
+    for idx, image in enumerate(r.get("images", [])):
+        image_path = save_image_to_dir(3, idx, image, r)
+        image_paths.append(image_path)
+
+    return image_paths
+
 with gr.Blocks() as ui:
     gr.Markdown("ArtistUI")
 
     # _________ Step 1 _________
-    with gr.Tab("Step 1"):
-        selected_index_step_1 = gr.Number(label="Index number") # Debug
+    with gr.Tab("First Image Generation"):
+        selected_index_step_1 = gr.Number(label="Index number", visible=False) # Debug
         # Input
         prompt_input_step_1 = gr.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
         negative_prompt_input_step_1 = gr.Textbox(lines=2, placeholder="Enter what you don't want here", label="Negative prompt")
         # Output    
-        generated_image_step_1 = gr.Gallery(elem_id="generated_image_step_1", label="Generated Image")
+        generated_image_step_1 = gr.Gallery(elem_id="generated_image_step_1", label="Generated Image", show_download_button=False)
         # Button
         generate_button_step_1 = gr.Button("Generate")
         send_to_step_2_button = gr.Button("Send to next step")
 
     # Button to initate step 1
     generate_button_step_1.click(step_1_txt2img_controlnet,
-                                 inputs=prompt_input_step_1,
+                                 inputs=[prompt_input_step_1,negative_prompt_input_step_1],
                                  outputs=generated_image_step_1)
     
     # Update the selected variable in response to gallery selection
     generated_image_step_1.select(get_select_index, None, selected_index_step_1)
     
     # _________ Step 2 _________
-    with gr.Tab("Step 2"):
-        selected_index_step_2 = gr.Number(label="Index number") # Debug
+    with gr.Tab("Image upscale"):
+        selected_index_step_2 = gr.Number(label="Index number", visible=False) # Debug
         # Output  
-        generated_image_step_2 = gr.Gallery(elem_id="generated_image_step_2", label="Generated Image") #, show_download_button=False)
+        generated_image_step_2 = gr.Gallery(elem_id="generated_image_step_2", label="Generated Image", show_download_button=False)
         # Button
         send_to_photoshop_button = gr.Button("Send to Photoshop")
 
@@ -250,12 +300,33 @@ with gr.Blocks() as ui:
     send_to_step_2_button.click(step_2_img2img,
                                 inputs=[selected_index_step_1, generated_image_step_1],
                                 outputs=generated_image_step_2)
-    
-    # _________ Step 3 _________
 
-    # Button to send the selected image to Photoshop (in Step 2 tab)
+    # Button to send the selected image to Photoshop
     send_to_photoshop_button.click(send_to_photoshop,
-                                   inputs=[selected_index_step_2])
+                                   inputs=[selected_index_step_2])    
+    # _________ Step 3 _________
+    with gr.Tab("Photoshop Sketch"):
+        selected_index_step_3 = gr.Number(label="Index number", visible=True) # Debug
+        # Input
+        input_image_step_3 = gr.Image(sources="upload", label="Drop your Photoshop sketch here as a JPG file")
+        prompt_input_step_3 = gr.Textbox(placeholder="Enter what you'd like to see here", label="Prompt for the sketch")
+        negative_prompt_input_step_3 = gr.Textbox(placeholder="Enter what you don't want here", label="Negative prompt for the sketch")
+        # Output    
+        generated_image_step_3 = gr.Gallery(elem_id="generated_image_step_3", label="Generated Image", show_download_button=False)
+        # Button
+        generate_button_step_3 = gr.Button("Generate")
+        send_to_step_4_button = gr.Button("Send to next step")
+
+        # Update the selected variable in response to gallery selection
+        generated_image_step_3.select(get_select_index, None, selected_index_step_3)
+
+        # Button to initate step 1
+        generate_button_step_3.click(step_3_img2img,
+                                    inputs=[input_image_step_3, prompt_input_step_3,negative_prompt_input_step_3],
+                                    outputs=generated_image_step_3)
+
+    # _________ Step 4 _________
+
 
 # Run the ArtistUI    
 if __name__ == "__main__":

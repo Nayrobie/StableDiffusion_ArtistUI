@@ -1,3 +1,5 @@
+# Version 2.9.5
+
 import gradio as gr
 import requests
 import os
@@ -5,231 +7,82 @@ import base64
 import json
 import cv2
 from PIL.ExifTags import TAGS
+import win32com.client
+import pythoncom
 
 # genai_env\Scripts\activate
-# A1111 API
-# url: EKO 1 = "http://10.2.5.35:7860/?__theme=dark" / EKO 2 = "http://10.2.4.15:7860/?__theme=dark"
-url = "http://10.2.5.35:7860"
-# Doc http://10.2.4.15:7860/docs#/default
-# Gradio UI: http://127.0.0.1:7860/?__theme=dark
+# url: EKO 2 = "http://10.2.4.15:7860" / EKO 1 = "http://10.2.5.35:7860"
+url = "http://10.2.4.15:7860"
 
-#__________________Config____________________
-model_checkpoint = "realisticVisionV20_v20NoVAE.safetensors [c0d1994c73]"
-controlnet_0 = "canny"
-controlnet_1 = "depth_midas"
-#____________________________________________
+# Directories
+cwd = os.getcwd()
+output_directory = os.path.join(os.getcwd(), "image_output")
 
-# Maps the controlnet modules above to the right models
-controlnet_mapping = {
-    "canny": "control_v11p_sd15_canny [d14c016b]",
-    "depth_midas": "control_v11f1p_sd15_depth [cfd03158]",
-    "lineart": "control_v11p_sd15_lineart [43d4be0d]",
-    "openpose_full": "control_v11p_sd15_openpose [cab727d4]",
-    "scribble_pidinet": "control_v11p_sd15_scribble [d4ba51ff]",
-}
-# default prompts, hidden from users
+# Model
+model_checkpoint = "dreamshaper_8.safetensors [879db523c3]"
+
+# Hidden prompts
 default_pp = "highly detailed, masterpiece, 8k, uhd"
-default_np = "watermark, text, censored, deformed, bad anatomy, disfigured, poorly drawn face, mutated, extra limb, ugly, poorly drawn hands, missing limb, floating limbs, disconnected limbs, disconnected head, malformed hands, long neck, mutated hands and fingers, bad hands, missing fingers, cropped, worst quality, low quality, mutation, poorly drawn, huge calf, bad hands, fused hand, missing hand, disappearing arms, disappearing thigh, disappearing calf, disappearing legs, missing fingers, fused fingers, abnormal eye proportion, Abnormal hands, abnormal legs, abnormal feet, abnormal fingers"
+default_np = "watermark, (text:1.2), naked, nsfw, deformed, bad anatomy, disfigured, mutated, fused fingers, extra fingers"
+chara_sheet = "Character sheet concept art, full body length, (plain background:1.2)"
 
 def encode_image_to_base64(image_data):
     _, buffer = cv2.imencode('.png', image_data)
     encoded_string = base64.b64encode(buffer)
     return encoded_string.decode('utf-8')
 
-def txt2img(prompt_input, negative_prompt_input, image_input):
-    # Positive prompt
-    inputs_pp = [prompt_input, default_pp]
-    combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
-    # Negative prompt
-    inputs_np = [negative_prompt_input, default_np]
-    combined_np = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_np]))
+def get_select_index(evt: gr.SelectData):
+    # Save selected image index
+    index = int(evt.index)
+    return index
 
-    txt2img_payload = {
-        "prompt": combined_pp,
-        "negative_prompt": combined_np,
-        "batch_size": 4,
-        "seed": -1,
-        "steps": 25,
-        "width": 768,
-        "height": 768,
-        "sampler_name": "Euler a",
-        "save_images": True,
-    }
-
-    # For the script to override the model chosen on A1111    
-    override_settings = {
-        "sd_model_checkpoint": model_checkpoint
-    }
-    override_payload = {
-        "override_settings": override_settings
-    }
-    txt2img_payload.update(override_payload)
+def save_image_to_dir(step_number, index, image, r):
+    # Check if output dir exists
+    os.makedirs(output_directory, exist_ok=True)  
     
-    txt2img_response = requests.post(url=f'{url}/sdapi/v1/txt2img', json=txt2img_payload)
-    r = txt2img_response.json()
-
-     # Save the images locally (modification for >1 image)
-    output_folder = "image_output"
-    os.makedirs(output_folder, exist_ok=True)  # Ensure the output folder exists
-    
-    image_paths = []
-    for i, img_data in enumerate(r.get("images", [])):
-        image_path = os.path.join(output_folder, f"generated_image_{i}.jpg")
-        with open(image_path, "wb") as img_file:
-            img_file.write(base64.b64decode(img_data))
-        image_paths.append(image_path)
-        
-        if i == 0:  # Print infotext for the first image only
-            jsoninfo = json.loads(r['info'])
-            print("\n________________Info Text________________")
-            print(f"Positive prompt: {jsoninfo['infotexts'][0]}")
-
-    return image_paths
-
-# function to test:
-def txt2img_test_dynamic_prompt(prompt_input, negative_prompt_input, image_input):
-    # Positive prompt
-    inputs_pp = [prompt_input, default_pp]
-    combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
-    # Negative prompt
-    inputs_np = [negative_prompt_input, default_np]
-    combined_np = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_np]))
-
-    txt2img_payload = {
-        "prompt": combined_pp,
-        "negative_prompt": combined_np,
-        "batch_size": 4,
-        "seed": -1,
-        "steps": 25,
-        "width": 768,
-        "height": 768,
-        "sampler_name": "Euler a",
-        "save_images": True,
-        "alwayson_scripts": {
-            "Dynamic Prompts v2.17.1": {
-                "args": {
-                    "0": True, # Dynamic Prompts enabled
-                    "1": False, # Combinatorial generation
-                    "2": 1, # Combinatorial batches
-                    "3": False, # Magic prompt
-                    "4": False, # I'm feelinf lucky
-                    "5": False, # Attention Grabber
-                    "6": 1.1, # Min attention
-                    "7": 1.5, # Max attention
-                    "8": 100, # Max magic prompt length
-                    "9": 0.7, # Magic prompt creativity
-                    "10": False, # Fixed seed
-                    "11": False, # Unlink seed from prompt
-                    "12": True, # Don't apply to negative prompts
-                    "13": False, # Enable Jinja2 templates
-                    "14": False, # Don't generate images
-                    "15": 0, # Max generations (0 = all combinations - the batch count value is ignored)
-                    "16": "Gustavosta/MagicPrompt-Stable-Diffusion", # Magic prompt model
-                    "17": "" # Magic prompt blocklist regex
-                }
-            }
-        }
-    }
-
-    # For the script to override the model chosen on A1111    
-    override_settings = {
-        "sd_model_checkpoint": model_checkpoint
-    }
-    override_payload = {
-        "override_settings": override_settings
-    }
-    txt2img_payload.update(override_payload)
-    
-    txt2img_response = requests.post(url=f'{url}/sdapi/v1/txt2img', json=txt2img_payload)
-    r = txt2img_response.json()
-
-    # Save the image locally
-    image_data = r.get("images", [])
-    output_folder = "image_output"
-    image_path = os.path.join(output_folder, "generated_image.jpg")
+    # Save the image to the output dir with the step number in the name
+    image_path = os.path.join(output_directory, f"output_image_step_{step_number}_{index}.jpg")
     with open(image_path, "wb") as img_file:
-        img_file.write(base64.b64decode(r["images"][0]))
-        
+        img_file.write(base64.b64decode(image))
+
     # Extract and print infotexts
-    jsoninfo = json.loads(r['info'])
-    print("Positive prompt:", jsoninfo["infotexts"][0]) # Debug info on the terminal
+    if 'info' in r:
+        jsoninfo = json.loads(r['info'])
+        print("________________Info Text________________")
+        print(f"Positive prompt: {jsoninfo['infotexts'][0]}")
+    else:
+        print("Info key not found in response:", r)
+
     return image_path
 
-def img2img(prompt_input, negative_prompt_input, image_input):
+def step_1_txt2img_controlnet(prompt_input_step_1, negative_prompt_input_step_1):
+    """
+    The 1st step of the character workflow generates 4 images.
+    The parameters are set for fast generation but low quality.
+    ControlNet Open Pose is used to get a character sheet reference, the reference image has 4 T-poses.
+    Users only have to write a short prompt, for example: "an astronaut wearing a backpack".
+    """
+
     # Positive prompt
-    inputs_pp = [prompt_input, default_pp]
+    inputs_pp = [chara_sheet, prompt_input_step_1, default_pp]
     combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
     # Negative prompt
-    inputs_np = [negative_prompt_input, default_np]
+    inputs_np = [negative_prompt_input_step_1, default_np]
     combined_np = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_np]))
-
-    image_data = encode_image_to_base64(image_input)
-
-    img2img_payload = {
-        "init_images": [image_data],
-        "denoising_strength":0.5,
-        "prompt": combined_pp,
-        "negative_prompt": combined_np,
-        "batch_size": 1,
-        "seed": -1,
-        "steps": 25,
-        "width": 768,
-        "height": 768,
-        "sampler_name": "Euler a",
-        "save_images": True
-    }
-
-    # For the script to override the model chosen on A1111    
-    override_settings = {
-        "sd_model_checkpoint": model_checkpoint
-    }
-    override_payload = {
-        "override_settings": override_settings
-    }
-    img2img_payload.update(override_payload)
     
-    img2img_response = requests.post(url=f'{url}/sdapi/v1/img2img', json=img2img_payload)
-    r = img2img_response.json()
-
-    # Save the image locally
-    image_data = r.get("images", [])
-    output_folder = "image_output"
-    image_path = os.path.join(output_folder, "generated_image.jpg")
-    with open(image_path, "wb") as img_file:
-        img_file.write(base64.b64decode(r["images"][0]))
-        
-    # Extract and print infotexts
-    jsoninfo = json.loads(r['info'])
-    print("Positive prompt:", jsoninfo["infotexts"][0]) # Debug info on the terminal
-    return image_path
-
-def txt2img_controlnet(prompt_input, negative_prompt_input, image_input):
-    """
-    """
-    # Positive prompt
-    inputs_pp = [prompt_input, default_pp]
-    combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
-    # Negative prompt
-    inputs_np = [negative_prompt_input, default_np]
-    combined_np = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_np]))
-    # input image
+    # Fetch the openpose reference image from the working directory
+    image_path = os.path.join(os.getcwd(), "image_input\character_sheet_model.jpg")
+    image_input = cv2.imread(image_path)
     image_data = encode_image_to_base64(image_input)
-    # Controlnet mapping to the right model
-    if controlnet_0 not in controlnet_mapping:
-        raise ValueError(f"Unsupported controlnet module: {controlnet_0}")
-    controlnet_model_0 = controlnet_mapping[controlnet_0]
-    if controlnet_1 not in controlnet_mapping:
-        raise ValueError(f"Unsupported controlnet module: {controlnet_1}")
-    controlnet_model_1 = controlnet_mapping[controlnet_1]
     
     controlnet_payload = {
         "prompt": combined_pp,
         "negative_prompt": combined_np,
-        "batch_size": 1,
+        "batch_size": 2,
         "seed": -1,
-        "steps": 25,
-        "width": 768,
-        "height": 768,
+        "steps": 10, # 15-20
+        "width": 1024,
+        "height": 476,
         "sampler_name": "Euler a",
         "save_images": True,
         "alwayson_scripts": {
@@ -237,22 +90,14 @@ def txt2img_controlnet(prompt_input, negative_prompt_input, image_input):
                 "args": [
                     {
                         "input_image": image_data,
-                        "module": controlnet_0,
-                        "model": controlnet_model_0,
+                        "model" :"control_v11p_sd15_openpose [cab727d4]",
+                        "module" : "openpose_full",
                         "weight": 1,
                         "resize_mode": "Scale to Fit (Inner Fit)",
                         "control_mode": "Balanced",
-                        "pixel_perfect": True
+                        "pixel_perfect": True,
+                        "save_detected_map": False,
                     },
-                    {
-                        "input_image": image_data,
-                        "module": controlnet_1,
-                        "model": controlnet_model_1,
-                        "weight": 1,
-                        "resize_mode": "Scale to Fit (Inner Fit)",
-                        "control_mode": "Balanced",
-                        "pixel_perfect": True
-                    }
                 ]
             }
         }
@@ -270,45 +115,219 @@ def txt2img_controlnet(prompt_input, negative_prompt_input, image_input):
     txt2img_controlnet_response = requests.post(url=f'{url}/sdapi/v1/txt2img', json=controlnet_payload)
     r = txt2img_controlnet_response.json()
 
-    # Save the image locally
-    image_data = r.get("images", [])
-    output_folder = "image_output"
-    image_path = os.path.join(output_folder, "generated_image.jpg")
-    with open(image_path, "wb") as img_file:
-        img_file.write(base64.b64decode(r["images"][0]))
-        
-    # Extract and print infotexts
-    jsoninfo = json.loads(r['info'])
-    print("Positive prompt:", jsoninfo["infotexts"][0]) # Debug info on the terminal
-    return image_path
+    # Save the image using the save_image_to_dir function with step number 1
+    image_paths = []
+    for idx, image in enumerate(r.get("images", [])):
+        image_path = save_image_to_dir(1, idx, image, r)
+        image_paths.append(image_path)
     
-# Inputs
-image_input =  gr.Image(sources="upload", elem_id="input_image", label="Input Image")
-prompt_input = gr.components.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
-negative_prompt_input = gr.components.Textbox(lines=2, placeholder="Enter what you don't want here", label="Negative prompt")
-# Outputs
-generated_image = gr.Gallery(elem_id="generated_image", label="Generated Image")
+    return image_paths
 
-# Create the ui
-ui = gr.Interface(
-    fn = txt2img,
-    inputs = [
-        prompt_input,
-        negative_prompt_input,
-        image_input
-    ],
-    outputs = [
-        generated_image,
-    ],
-    title ="Stable Diffusion Artist UI Pipe",
-    allow_flagging = "never"
-)
+def step_2_img2img(selected_index_step_1, generated_images_step_1):
+    """
+    2nd step is to upscale the image chosen from the 1st step.
+    """
 
-# Display the generated image above the output components
-def update_image(image_path):
-    if image_path:
-        with open(image_path, "rb") as img_file:
-            return img_file.read()
+    if generated_images_step_1 and selected_index_step_1 is not None:
+        # Construct the file path for the selected image based on the index
+        image_path = os.path.join(os.getcwd(), f"image_output\\output_image_step_1_{int(selected_index_step_1)}.jpg")
+        # Check if the file exists
+        if os.path.exists(image_path):
+            # Read the image
+            image_input = cv2.imread(image_path)
+            # Encode the image to base64
+            image_data = encode_image_to_base64(image_input)
+        else:
+            print(f"Error: Image file not found at {image_path}")
+            return []        
+        
+        # Read the image
+        image_input = cv2.imread(image_path)
+        # Encode the image to base64
+        image_data = encode_image_to_base64(image_input)
+    
+    img2img_payload = {
+        "init_images": [image_data],
+        "denoising_strength":0.45,
+        "prompt": "",
+        "negative_prompt": "",
+        "batch_size": 2,
+        "seed": -1,
+        "steps": 10, #30
+        "width": 1433,
+        "height": 660,
+        "sampler_name": "DPM++ 2M Karras",
+        "save_images": True
+    }
 
-# Run the ui
-ui.launch()
+    # For the script to override the model chosen on A1111    
+    override_settings = {
+        "sd_model_checkpoint": model_checkpoint
+    }
+    override_payload = {
+        "override_settings": override_settings
+    }
+    img2img_payload.update(override_payload)
+    
+    img2img_response = requests.post(url=f'{url}/sdapi/v1/img2img', json=img2img_payload)
+    r = img2img_response.json()
+
+    # Save the image using the save_image_to_dir function with step number 2
+    image_paths = []
+    for idx, image in enumerate(r.get("images", [])):
+        image_path = save_image_to_dir(2, idx, image, r)
+        image_paths.append(image_path)
+
+    return image_paths
+
+def send_to_photoshop(selected_index_step_2):
+    # Check if selected_index_step_2 is not None and is an integer
+    if selected_index_step_2 is not None:
+
+        # Check if output dir exists
+        os.makedirs(output_directory, exist_ok=True)  
+        # Construct the file path for the selected image based on the index
+        image_path = os.path.join(output_directory, f"output_image_step_2_{int(selected_index_step_2)}.jpg")
+        # Check if the file exists
+        if os.path.exists(image_path):
+
+            # Need to co initialize to avoid "CoInitialize has not been called" exception
+            pythoncom.CoInitialize()
+
+            # Open Photoshop
+            psApp = win32com.client.Dispatch("Photoshop.Application")
+
+            # Open selected image from Step 2
+            psApp.Open(image_path)
+
+            # Reference the active document
+            doc = psApp.Application.ActiveDocument
+            # Add a new blank layer
+            layer = doc.ArtLayers.Add()
+            layer.name = "PaintOver"
+
+            print(f"Image opened successfully in Photoshop: {image_path}")
+        else:
+            print(f"Error: Image file not found at {image_path}")
+    else:
+        print("Please select an image in Step 2")
+
+def step_3_img2img(input_image_step_3, prompt_input_step_3, negative_prompt_input_step_3):
+    """
+    3rd step is like 2nd step but without the upscale. It's to generate the image again and render the sketch from Photoshop (from 3rd step)
+    """
+
+    # Positive prompt
+    inputs_pp = [chara_sheet, prompt_input_step_3]
+    combined_pp = ", ".join(filter(None, [str(i) if i != "None" else "" for i in inputs_pp]))
+
+    # Check if an image is uploaded
+    if input_image_step_3 is not None:
+        # Convert the uploaded image to base64
+        image_data = encode_image_to_base64(input_image_step_3) # To fix: coloration is wrong
+    else:
+        print("Error: No image uploaded in Step 3")
+    
+    img2img_payload = {
+        "init_images": [image_data],
+        "denoising_strength":0.5,
+        "prompt": combined_pp,
+        "negative_prompt": negative_prompt_input_step_3,
+        "batch_size": 2,
+        "seed": -1,
+        "steps": 30,
+        "width": 1433,
+        "height": 660,
+        "sampler_name": "DPM++ 2M Karras",
+        "save_images": True
+    }
+
+    # For the script to override the model chosen on A1111    
+    override_settings = {
+        "sd_model_checkpoint": model_checkpoint
+    }
+    override_payload = {
+        "override_settings": override_settings
+    }
+    img2img_payload.update(override_payload)
+    
+    img2img_response = requests.post(url=f'{url}/sdapi/v1/img2img', json=img2img_payload)
+    r = img2img_response.json()
+
+    # Save the image using the save_image_to_dir function with step number 3
+    image_paths = []
+    for idx, image in enumerate(r.get("images", [])):
+        image_path = save_image_to_dir(3, idx, image, r)
+        image_paths.append(image_path)
+
+    return image_paths
+
+with gr.Blocks() as ui:
+    gr.Markdown("ArtistUI")
+
+    # _________ Step 1 _________
+    with gr.Tab("First Image Generation"):
+        selected_index_step_1 = gr.Number(label="Index number", visible=False) # Debug
+        # Input
+        prompt_input_step_1 = gr.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
+        negative_prompt_input_step_1 = gr.Textbox(lines=2, placeholder="Enter what you don't want here", label="Negative prompt")
+        # Output    
+        generated_image_step_1 = gr.Gallery(elem_id="generated_image_step_1", label="Generated Image", show_download_button=False)
+        # Button
+        generate_button_step_1 = gr.Button("Generate")
+        send_to_step_2_button = gr.Button("Send to next step")
+
+    # Button to initate step 1
+    generate_button_step_1.click(step_1_txt2img_controlnet,
+                                 inputs=[prompt_input_step_1,negative_prompt_input_step_1],
+                                 outputs=generated_image_step_1)
+    
+    # Update the selected variable in response to gallery selection
+    generated_image_step_1.select(get_select_index, None, selected_index_step_1)
+    
+    # _________ Step 2 _________
+    with gr.Tab("Image upscale"):
+        selected_index_step_2 = gr.Number(label="Index number", visible=False) # Debug
+        # Output  
+        generated_image_step_2 = gr.Gallery(elem_id="generated_image_step_2", label="Generated Image", show_download_button=False)
+        # Button
+        send_to_photoshop_button = gr.Button("Send to Photoshop")
+
+    # Update the selected variable in response to gallery selection
+    generated_image_step_2.select(get_select_index, None, selected_index_step_2)
+        
+    # Button to initiate step 2 (in Step 1 tab)
+    send_to_step_2_button.click(step_2_img2img,
+                                inputs=[selected_index_step_1, generated_image_step_1],
+                                outputs=generated_image_step_2)
+
+    # Button to send the selected image to Photoshop
+    send_to_photoshop_button.click(send_to_photoshop,
+                                   inputs=[selected_index_step_2])    
+    # _________ Step 3 _________
+    with gr.Tab("Photoshop Sketch"):
+        selected_index_step_3 = gr.Number(label="Index number", visible=True) # Debug
+        # Input
+        input_image_step_3 = gr.Image(sources="upload", label="Drop your Photoshop sketch here as a JPG file")
+        prompt_input_step_3 = gr.Textbox(placeholder="Enter what you'd like to see here", label="Prompt for the sketch")
+        negative_prompt_input_step_3 = gr.Textbox(placeholder="Enter what you don't want here", label="Negative prompt for the sketch")
+        # Output    
+        generated_image_step_3 = gr.Gallery(elem_id="generated_image_step_3", label="Generated Image", show_download_button=False)
+        # Button
+        generate_button_step_3 = gr.Button("Generate")
+        send_to_step_4_button = gr.Button("Send to next step")
+
+        # Update the selected variable in response to gallery selection
+        generated_image_step_3.select(get_select_index, None, selected_index_step_3)
+
+        # Button to initate step 1
+        generate_button_step_3.click(step_3_img2img,
+                                    inputs=[input_image_step_3, prompt_input_step_3,negative_prompt_input_step_3],
+                                    outputs=generated_image_step_3)
+
+    # _________ Step 4 _________
+
+
+# Run the ArtistUI    
+if __name__ == "__main__":
+    ui.launch()

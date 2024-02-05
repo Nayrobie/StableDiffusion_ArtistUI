@@ -6,12 +6,25 @@ import os
 import base64
 import json
 import cv2
-from PIL.ExifTags import TAGS
+import socket
 import win32com.client
 import pythoncom
 
 # genai_env\Scripts\activate
 # url: EKO 2 = "http://10.2.4.15:7860" / EKO 1 = "http://10.2.5.35:7860"
+
+#def get_ip_by_hostname(hostname):
+#    try:
+#        ip_address = socket.gethostbyname(hostname)
+#        return ip_address
+#    except socket.gaierror as e:
+#        return f"Erreur lors de la récupération de l'IP pour {hostname}: {e}"
+
+# Get ip adress
+#hostname = 'EKO2'
+#url = f"http://{get_ip_by_hostname(hostname)}:7860"
+#print(url)
+
 url = "http://10.2.4.15:7860"
 
 # Model
@@ -222,7 +235,7 @@ def send_to_photoshop(selected_index_step_2):
     else:
         print("Please select an image in Step 2")
 
-def step_3_img2img(input_image_step_3, prompt_input_step_3, negative_prompt_input_step_3):
+def step_3_img2img(prompt_input_step_3, negative_prompt_input_step_3): # input_image_step_3
     """
     3rd step is like 2nd step but without the upscale. It's to generate the image again and render the sketch from Photoshop (from 3rd step)
     """
@@ -234,7 +247,9 @@ def step_3_img2img(input_image_step_3, prompt_input_step_3, negative_prompt_inpu
     # Check if an image was uploaded by the user
     if input_image_step_3 is not None:
         # Convert the uploaded image to base64
-        image_data = encode_image_to_base64(input_image_step_3) # To fix: coloration is wrong: check by importing from path instead of this
+        # image_data = encode_image_to_base64(input_image_step_3) # To fix: coloration is wrong: check by importing from path instead of this
+        image_path = os.path.join(os.getcwd(), f"01.jpg")
+        image_data = encode_image_to_base64(cv2.imread(image_path))
     else:
         print("Error: No image uploaded in Step 3")
     
@@ -434,7 +449,7 @@ with gr.Blocks() as ui:
         send_to_step_4_button = gr.Button("Send to next step")
         # Button to initate step 1
         generate_button_step_3.click(step_3_img2img,
-                                    inputs=[input_image_step_3, prompt_input_step_3,negative_prompt_input_step_3],
+                                    inputs=[prompt_input_step_3,negative_prompt_input_step_3],
                                     outputs=generated_image_step_3)
    
         # Update the selected variable in response to gallery selection
@@ -443,16 +458,17 @@ with gr.Blocks() as ui:
 
     # _________ Step 4 _________
     with gr.Tab("Final Upscale"):
-        selected_index_step_4 = gr.Number(label="Index number", visible=False) # Debug
-        # Output    
+        selected_index_step_4 = gr.Number(label="Index number", visible=False)  # Debug
+        # Output
         generated_image_step_4 = gr.Gallery(label="Generated Image", show_download_button=False)
         # Button
         generate_button_step_4 = gr.Button("Generate")
-        # Button to initate step 1
-        generate_button_step_3.click(step_3_img2img,
-                                    inputs=[input_image_step_3, prompt_input_step_3,negative_prompt_input_step_3],
-                                    outputs=generated_image_step_3)
-        
+
+        # Button to initiate step 4
+        generate_button_step_4.click(step_4_img2img,
+                                    inputs=[selected_index_step_3],
+                                    outputs=generated_image_step_4)
+
         # Update the selected variable in response to gallery selection
         generated_image_step_4.select(get_select_index, None, selected_index_step_4)
 

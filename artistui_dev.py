@@ -9,26 +9,27 @@ import cv2
 import socket
 import win32com.client
 import pythoncom
+import shutil
+from PIL import Image
+import io
 
 # genai_env\Scripts\activate
 # url: EKO 2 = "http://10.2.4.15:7860" / EKO 1 = "http://10.2.5.35:7860"
 
-#def get_ip_by_hostname(hostname):
-#    try:
-#        ip_address = socket.gethostbyname(hostname)
-#        return ip_address
-#    except socket.gaierror as e:
-#        return f"Erreur lors de la récupération de l'IP pour {hostname}: {e}"
+def get_ip_by_hostname(hostname):
+    try:
+        ip_address = socket.gethostbyname(hostname)
+        return ip_address
+    except socket.gaierror as e:
+        return f"Erreur lors de la récupération de l'IP pour {hostname}: {e}"
 
 # Get ip adress
-#hostname = 'EKO2'
-#url = f"http://{get_ip_by_hostname(hostname)}:7860"
-#print(url)
-
-url = "http://10.2.4.15:7860"
+hostname = 'ANN-WKS-EKO1'
+url = f"http://{get_ip_by_hostname(hostname)}:7860"
+print(url) # remplace dynamiquement: url = "http://10.2.4.15:7860"
 
 # Model
-model_checkpoint = "spybgsToolkitFor_v50NoiseOffset.safetensors [690cb24a47]"
+model_checkpoint = "SPYBGToolkit_v50-official.ckpt [5d6cf7c225]"
 
 # Directories
 cwd = os.getcwd()
@@ -40,7 +41,20 @@ default_np = "watermark, (text:1.2), naked, nsfw, deformed, bad anatomy, disfigu
 chara_sheet = "Character sheet concept art, full body length, (plain background:1.2)"
 
 def encode_image_to_base64(image_data):
-    _, buffer = cv2.imencode('.png', image_data)
+    # Convert bytes-like object to Image
+    with Image.open(io.BytesIO(image_data)) as img:
+        # Get image format
+        image_format = img.format.lower()
+
+        # Encode image based on format
+        if image_format == 'jpeg':
+            _, buffer = cv2.imencode('.jpg', image_data)
+        elif image_format == 'png':
+            _, buffer = cv2.imencode('.png', image_data)
+        else:
+            raise ValueError(f"Unsupported image format: {image_format}")
+    
+    # Encode to base64
     encoded_string = base64.b64encode(buffer)
     return encoded_string.decode('utf-8')
 
@@ -211,27 +225,26 @@ def send_to_photoshop(selected_index_step_2):
         os.makedirs(output_directory, exist_ok=True)  
         # Construct the file path for the selected image based on the index
         image_path = os.path.join(output_directory, f"output_image_step_2_{int(selected_index_step_2)}.jpg")
+        # Pour pas détruire l'input de Photoshop
+        shutil.copy(image_path, os.path.join(output_directory,f"step_2_edit.jpg"))
+        copied_image_path = os.path.join(output_directory,f"step_2_edit.jpg")
         # Check if the file exists
-        if os.path.exists(image_path):
-
+        if os.path.exists(copied_image_path):
             # Need to co initialize to avoid "CoInitialize has not been called" exception
             pythoncom.CoInitialize()
-
             # Open Photoshop
             psApp = win32com.client.Dispatch("Photoshop.Application")
-
             # Open selected image from Step 2
-            psApp.Open(image_path)
-
+            psApp.Open(copied_image_path)
             # Reference the active document
             doc = psApp.Application.ActiveDocument
             # Add a new blank layer
             layer = doc.ArtLayers.Add()
             layer.name = "PaintOver"
 
-            print(f"Image opened successfully in Photoshop: {image_path}")
+            print(f"Image opened successfully in Photoshop: {copied_image_path}")
         else:
-            print(f"Error: Image file not found at {image_path}")
+            print(f"Error: Image file not found at {copied_image_path}")
     else:
         print("Please select an image in Step 2")
 
@@ -246,10 +259,11 @@ def step_3_img2img(prompt_input_step_3, negative_prompt_input_step_3): # input_i
 
     # Check if an image was uploaded by the user
     if input_image_step_3 is not None:
+        # print("ICI",type(input_image_step_3))
         # Convert the uploaded image to base64
-        # image_data = encode_image_to_base64(input_image_step_3) # To fix: coloration is wrong: check by importing from path instead of this
-        image_path = os.path.join(os.getcwd(), f"01.jpg")
-        image_data = encode_image_to_base64(cv2.imread(image_path))
+        image_data = encode_image_to_base64(input_image_step_3) # To fix: coloration is wrong: check by importing from path instead of this
+        # image_path = os.path.join(os.getcwd(), f"01.jpg")
+        # image_data = encode_image_to_base64(cv2.imread(image_path))
     else:
         print("Error: No image uploaded in Step 3")
     

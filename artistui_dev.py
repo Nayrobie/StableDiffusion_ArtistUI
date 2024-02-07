@@ -36,25 +36,12 @@ cwd = os.getcwd()
 output_directory = os.path.join(os.getcwd(), "image_output")
 
 # Hidden prompts
-default_pp = "highly detailed, masterpiece, 8k, uhd"
-default_np = "watermark, (text:1.2), naked, nsfw, deformed, bad anatomy, disfigured, mutated, fused fingers, extra fingers"
-chara_sheet = "Character sheet concept art, full body length, (plain background:1.2)"
+chara_sheet = "(plain background:1.2), full body (concept art:1.2) showing 4 views of a character with front sides and back"
+default_pp = "tk-char, highly detailed, masterpiece, 8k, uhd"
+default_np = "holding weapons, weapons, watermark, (text:1.2), naked, nsfw, deformed, bad anatomy, disfigured, mutated, fused fingers, extra fingers"
 
 def encode_image_to_base64(image_data):
-    # Convert bytes-like object to Image
-    with Image.open(io.BytesIO(image_data)) as img:
-        # Get image format
-        image_format = img.format.lower()
-
-        # Encode image based on format
-        if image_format == 'jpeg':
-            _, buffer = cv2.imencode('.jpg', image_data)
-        elif image_format == 'png':
-            _, buffer = cv2.imencode('.png', image_data)
-        else:
-            raise ValueError(f"Unsupported image format: {image_format}")
-    
-    # Encode to base64
+    _, buffer = cv2.imencode('.png', image_data)
     encoded_string = base64.b64encode(buffer)
     return encoded_string.decode('utf-8')
 
@@ -107,9 +94,9 @@ def step_1_txt2img_controlnet(prompt_input_step_1, negative_prompt_input_step_1)
         "negative_prompt": combined_np,
         "batch_size": 2,
         "seed": -1,
-        "steps": 20,
-        "width": 1229, # initial (ref image) resolution *1.2
-        "height": 571,
+        "steps": 30,
+        "width": 1432, # initial (ControlNet ref image) resolution *1.4
+        "height": 664,
         "sampler_name": "Euler a",
         "save_images": True,
         "alwayson_scripts": {
@@ -119,9 +106,9 @@ def step_1_txt2img_controlnet(prompt_input_step_1, negative_prompt_input_step_1)
                         "input_image": image_data,
                         "model" :"control_v11p_sd15_openpose [cab727d4]",
                         "module" : "openpose_full",
-                        "weight": 1,
+                        "weight": 1.2,
                         "resize_mode": "Scale to Fit (Inner Fit)",
-                        "control_mode": "Balanced",
+                        "control_mode": "ControlNet is more important",
                         "pixel_perfect": True,
                         "save_detected_map": False,
                     },
@@ -160,7 +147,8 @@ def step_1_txt2img_controlnet(prompt_input_step_1, negative_prompt_input_step_1)
 
 def step_2_img2img(selected_index_step_1):
     """
-    2nd step is to upscale the image chosen from the 1st step.
+    2nd step does a big upscale to the chosen image from the 1st step. 
+    It also uses the Adetailer extension to detect and upscale the face & hands.
     """
 
     if selected_index_step_1 is not None:
@@ -175,19 +163,111 @@ def step_2_img2img(selected_index_step_1):
         else:
             print(f"Error: Image file not found at {image_path}")
             return []
-    
+
     img2img_payload = {
         "init_images": [image_data],
-        "denoising_strength":0.45,
-        "prompt": "",
-        "negative_prompt": "",
-        "batch_size": 2,
+        "denoising_strength": 0.4,
+        "prompt": chara_sheet,
+        "negative_prompt": default_np,
+        "batch_size": 1,
         "seed": -1,
         "steps": 30,
-        "width": 1434, # initial (ref image) resolution *1.4
-        "height": 666,
+        "width": 1632,  # initial (ref image) resolution *1.6
+        "height": 760,
         "sampler_name": "DPM++ 2M Karras",
-        "save_images": True
+        "save_images": True,
+        "alwayson_scripts": {
+            "ADetailer": { # Marche pas, fix plus tard
+                "args": [
+                    {
+                        "0": True,
+                        "1": False,
+                        "2": {
+                            "ad_cfg_scale" :7,
+                            "ad_checkpoint" :"Use same checkpoint",
+                            "ad_clip_skip" :1,
+                            "ad_confidence" :0.3,
+                            "ad_controlnet_guidance_end" :1,
+                            "ad_controlnet_guidance_start" :0,
+                            "ad_controlnet_model" :"None",
+                            "ad_controlnet_module" :"None",
+                            "ad_controlnet_weight" :1,
+                            "ad_denoising_strength" :0.4,
+                            "ad_dilate_erode" :4,
+                            "ad_inpaint_height" :768,
+                            "ad_inpaint_only_masked" :True,
+                            "ad_inpaint_only_masked_padding" :32,
+                            "ad_inpaint_width" :768,
+                            "ad_mask_blur" :4,
+                            "ad_mask_k_largest" :0,
+                            "ad_mask_max_ratio" :1,
+                            "ad_mask_merge_invert" :"None",
+                            "ad_mask_min_ratio" :0,
+                            "ad_model" :"face_yolov8n.pt",
+                            "ad_negative_prompt" :"",
+                            "ad_noise_multiplier" :1,
+                            "ad_prompt" :"",
+                            "ad_restore_face" :False,
+                            "ad_sampler" :"DPM++ 2M Karras",
+                            "ad_steps" :28,
+                            "ad_use_cfg_scale" :False,
+                            "ad_use_checkpoint" :False,
+                            "ad_use_clip_skip" :False,
+                            "ad_use_inpaint_width_height" :False,
+                            "ad_use_noise_multiplier" :False,
+                            "ad_use_sampler" :False,
+                            "ad_use_steps" :False,
+                            "ad_use_vae" :False,
+                            "ad_vae" :"Use same VAE",
+                            "ad_x_offset" :0,
+                            "ad_y_offset" :0,
+                            "is_api" :[ ]
+                        },
+                        "3": {
+                            "ad_cfg_scale" :7,
+                            "ad_checkpoint" :"Use same checkpoint",
+                            "ad_clip_skip" :1,
+                            "ad_confidence" :0.3,
+                            "ad_controlnet_guidance_end" :1,
+                            "ad_controlnet_guidance_start" :0,
+                            "ad_controlnet_model" :"None",
+                            "ad_controlnet_module" :"None",
+                            "ad_controlnet_weight" :1,
+                            "ad_denoising_strength" :0.4,
+                            "ad_dilate_erode" :4,
+                            "ad_inpaint_height" :512,
+                            "ad_inpaint_only_masked" :True,
+                            "ad_inpaint_only_masked_padding" :32,
+                            "ad_inpaint_width" :512,
+                            "ad_mask_blur" :4,
+                            "ad_mask_k_largest" :0,
+                            "ad_mask_max_ratio" :1,
+                            "ad_mask_merge_invert" :"None",
+                            "ad_mask_min_ratio" :0,
+                            "ad_model" :"None",
+                            "ad_negative_prompt" :"",
+                            "ad_noise_multiplier" :1,
+                            "ad_prompt" :"",
+                            "ad_restore_face" :False,
+                            "ad_sampler" :"DPM++ 2M Karras",
+                            "ad_steps" :28,
+                            "ad_use_cfg_scale" :False,
+                            "ad_use_checkpoint" :False,
+                            "ad_use_clip_skip" :False,
+                            "ad_use_inpaint_width_height" :False,
+                            "ad_use_noise_multiplier" :False,
+                            "ad_use_sampler" :False,
+                            "ad_use_steps" :False,
+                            "ad_use_vae" :False,
+                            "ad_vae" :"Use same VAE",
+                            "ad_x_offset" :0,
+                            "ad_y_offset" :0,
+                            "is_api" :[ ]
+                        }
+                    }
+                ]
+            }
+        }
     }
 
     # For the script to override the model chosen on A1111    
@@ -198,7 +278,7 @@ def step_2_img2img(selected_index_step_1):
         "override_settings": override_settings
     }
     img2img_payload.update(override_payload)
-    
+
     try:
         img2img_response = requests.post(url=f'{url}/sdapi/v1/img2img', json=img2img_payload)
         r = img2img_response.json()
@@ -248,7 +328,7 @@ def send_to_photoshop(selected_index_step_2):
     else:
         print("Please select an image in Step 2")
 
-def step_3_img2img(prompt_input_step_3, negative_prompt_input_step_3): # input_image_step_3
+def step_3_img2img(prompt_input_step_3, negative_prompt_input_step_3, input_image_step_3):
     """
     3rd step is like 2nd step but without the upscale. It's to generate the image again and render the sketch from Photoshop (from 3rd step)
     """
@@ -261,7 +341,7 @@ def step_3_img2img(prompt_input_step_3, negative_prompt_input_step_3): # input_i
     if input_image_step_3 is not None:
         # print("ICI",type(input_image_step_3))
         # Convert the uploaded image to base64
-        image_data = encode_image_to_base64(input_image_step_3) # To fix: coloration is wrong: check by importing from path instead of this
+        image_data = encode_image_to_base64(input_image_step_3) 
         # image_path = os.path.join(os.getcwd(), f"01.jpg")
         # image_data = encode_image_to_base64(cv2.imread(image_path))
     else:
@@ -275,8 +355,8 @@ def step_3_img2img(prompt_input_step_3, negative_prompt_input_step_3): # input_i
         "batch_size": 2,
         "seed": -1,
         "steps": 30,
-        "width": 1434, # initial (ref image) resolution *1.4
-        "height": 666,
+        "width": 1632,  # no upscale from step 2, initial (ref image) resolution *1.6
+        "height": 760,
         "sampler_name": "DPM++ 2M Karras",
         "save_images": True
     }
@@ -335,56 +415,10 @@ def step_4_img2img(selected_index_step_3):
         "batch_size": 1,
         "seed": -1,
         "steps": 30,
-        "width": 1843, # initial (ref image) resolution *1.8
-        "height": 857,
+        "width": 2048, # final 2k upscale: initial (ref image) resolution *2
+        "height": 952,
         "sampler_name": "DPM++ 2M Karras",
         "save_images": True,
-        "alwayson_scripts": {
-            "ADetailer": {
-                "args": [
-                    {
-                        "0": True,
-                        "1": False,
-                        "2": {
-                        "ad_cfg_scale" : 7,
-                        "ad_checkpoint" : "Use same checkpoint",
-                        "ad_clip_skip" : 1,
-                        "ad_confidence" : 0.3,
-                        "ad_denoising_strength" : 0.4,
-                        "ad_inpaint_height" : 512,
-                        "ad_inpaint_only_masked" : True,
-                        "ad_inpaint_only_masked_padding" : 32,
-                        "ad_inpaint_width" : 512,
-                        "ad_mask_blur" : 4,
-                        "ad_model" : "face_yolov8n.pt",
-                        "ad_negative_prompt" : "",
-                        "ad_prompt" : "",
-                        "ad_restore_face" : False,
-                        "ad_sampler" : "DPM++ 2M Karras",
-                        "ad_steps" : 28,
-                        },
-                        "3" : {
-                        "ad_cfg_scale" : 7,
-                        "ad_confidence" : 0.3,
-                        "ad_controlnet_guidance_end" : 1,
-                        "ad_controlnet_weight" : 1,
-                        "ad_denoising_strength" : 0.4,
-                        "ad_dilate_erode" : 4,
-                        "ad_inpaint_height" : 512,
-                        "ad_inpaint_only_masked" : True,
-                        "ad_inpaint_only_masked_padding" : 32,
-                        "ad_inpaint_width" : 512,
-                        "ad_mask_blur" : 4,
-                        "ad_negative_prompt" : "",
-                        "ad_prompt" : "",
-                        "ad_restore_face" : False,
-                        "ad_sampler" : "DPM++ 2M Karras",
-                        "ad_steps" : 28,
-                        }
-                     }    
-                ]
-            }
-        }
     }
 
     # For the script to override the model chosen on A1111    
@@ -411,7 +445,7 @@ with gr.Blocks() as ui:
     gr.Markdown("ArtistUI")
 
     # _________ Step 1 _________
-    with gr.Tab("First Image Generation"):
+    with gr.Tab("1. Fast Image Generation"):
         selected_index_step_1 = gr.Number(label="Index number", visible=False) # Debug
         # Input
         prompt_input_step_1 = gr.Textbox(lines=2, placeholder="Enter what you'd like to see here", label="Prompt")
@@ -431,7 +465,7 @@ with gr.Blocks() as ui:
     generated_image_step_1.select(get_select_index, None, selected_index_step_1)
     
     # _________ Step 2 _________
-    with gr.Tab("Image upscale"):
+    with gr.Tab("2. Image upscale"):
         selected_index_step_2 = gr.Number(label="Index number", visible=False) # Debug
         # Output  
         generated_image_step_2 = gr.Gallery(label="Generated Image", show_download_button=False)
@@ -450,7 +484,7 @@ with gr.Blocks() as ui:
     send_to_photoshop_button.click(send_to_photoshop,
                                    inputs=[selected_index_step_2])    
     # _________ Step 3 _________
-    with gr.Tab("Photoshop Sketch"):
+    with gr.Tab("3. Photoshop sketch"):
         selected_index_step_3 = gr.Number(label="Index number", visible=False) # Debug
         # Input
         input_image_step_3 = gr.Image(sources="upload", label="Drop your Photoshop sketch here as a JPG file")
@@ -463,16 +497,20 @@ with gr.Blocks() as ui:
         send_to_step_4_button = gr.Button("Send to next step")
         # Button to initate step 1
         generate_button_step_3.click(step_3_img2img,
-                                    inputs=[prompt_input_step_3,negative_prompt_input_step_3],
+                                    inputs=[prompt_input_step_3, negative_prompt_input_step_3, input_image_step_3],
                                     outputs=generated_image_step_3)
    
         # Update the selected variable in response to gallery selection
         generated_image_step_3.select(get_select_index, None, selected_index_step_3)
+
+        # Button to initiate step 4 (in Step 3 tab)
+        send_to_step_4_button.click(step_2_img2img,
+                                    inputs=[selected_index_step_1],
+                                    outputs=generated_image_step_2)
         
 
     # _________ Step 4 _________
-    with gr.Tab("Final Upscale"):
-        selected_index_step_4 = gr.Number(label="Index number", visible=False)  # Debug
+    with gr.Tab("4. Final 2k Upscale"):
         # Output
         generated_image_step_4 = gr.Gallery(label="Generated Image", show_download_button=False)
         # Button
@@ -483,8 +521,6 @@ with gr.Blocks() as ui:
                                     inputs=[selected_index_step_3],
                                     outputs=generated_image_step_4)
 
-        # Update the selected variable in response to gallery selection
-        generated_image_step_4.select(get_select_index, None, selected_index_step_4)
 
 # Run the ArtistUI    
 if __name__ == "__main__":
